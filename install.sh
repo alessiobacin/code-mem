@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🧠 Installing mc — Project Memory Tool..."
+echo "🧠 Installing code-mem — Project Memory Tool..."
 
 # Detect OS
 UNAME=$(uname -s)
@@ -21,28 +21,28 @@ if [ -d "$HOME/.cursor" ]; then HARNESS="$HARNESS cursor"; fi
 
 # Download CLI
 mkdir -p "$BINDIR"
-echo "  📥 Downloading mc CLI..."
+echo "  📥 Downloading cm CLI..."
 if command -v curl &>/dev/null; then
-  curl -fsSL "https://raw.githubusercontent.com/alessiobacin/mc/main/bin/mc" -o "$BINDIR/mc"
+  curl -fsSL "https://raw.githubusercontent.com/alessiobacin/code-mem/main/bin/cm" -o "$BINDIR/cm"
 elif command -v wget &>/dev/null; then
-  wget -q "https://raw.githubusercontent.com/alessiobacin/mc/main/bin/mc" -O "$BINDIR/mc"
+  wget -q "https://raw.githubusercontent.com/alessiobacin/code-mem/main/bin/cm" -O "$BINDIR/cm"
 else
   echo "❌ Need curl or wget"
   exit 1
 fi
-chmod +x "$BINDIR/mc"
+chmod +x "$BINDIR/cm"
 
-echo "  ✅ CLI installed at $BINDIR/mc"
+echo "  ✅ CLI installed at $BINDIR/cm"
 
 # Install skill for each harness
-SKILL_URL="https://raw.githubusercontent.com/alessiobacin/mc/main/skill/SKILL.md"
+SKILL_URL="https://raw.githubusercontent.com/alessiobacin/code-mem/main/skill/SKILL.md"
 INSTALLED=0
 for h in $HARNESS; do
   case "$h" in
-    pi)         SKILL_DIR="$HOME/.pi/agent/skills/mc" ;;
-    claude-code) SKILL_DIR="$HOME/.claude/skills/mc" ;;
-    codex)      SKILL_DIR="$HOME/.codex/skills/mc" ;;
-    cursor)     SKILL_DIR="$HOME/.cursor/skills/mc" ;;
+    pi)         SKILL_DIR="$HOME/.pi/agent/skills/cm" ;;
+    claude-code) SKILL_DIR="$HOME/.claude/skills/cm" ;;
+    codex)      SKILL_DIR="$HOME/.codex/skills/cm" ;;
+    cursor)     SKILL_DIR="$HOME/.cursor/skills/cm" ;;
   esac
   mkdir -p "$SKILL_DIR"
   if command -v curl &>/dev/null; then
@@ -55,19 +55,19 @@ for h in $HARNESS; do
 done
 
 echo ""
-echo "✅ mc installed successfully!"
+echo "✅ code-mem installed successfully!"
 echo ""
 echo "📋 Add to PATH (add to ~/.bashrc or ~/.zshrc):"
 echo "   export PATH=\"\$PATH:$BINDIR\""
 echo ""
 echo "📋 In your project:"
-echo "   mc init"
+echo "   cm init"
 echo ""
 echo "📋 Commands:"
-echo "   mc add \"Project uses TypeScript\"      # Save fact"
-echo "   mc gn project_root                     # Graph neighbors"
-echo "   mc gi                                  # Graph insights"
-echo "   mc sq \"database\"                       # Search conversations"
+echo "   cm add \"Project uses TypeScript\"     # Save fact"
+echo "   cm gn project_root                    # Graph neighbors"
+echo "   cm gi                                 # Graph insights"
+echo "   cm sq \"database\"                      # Search conversations"
 echo ""
 
 # Auto-add to PATH in current shell

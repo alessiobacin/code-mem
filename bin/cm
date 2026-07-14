@@ -27,8 +27,8 @@ const tc={};for(const n of g.nodes)tc[n.type]=(tc[n.type]||0)+1
 let o=g.nodes.length+" nodes, "+g.edges.length+" edges\n";o+="Types: "+Object.entries(tc).map(([t,c])=>t+": "+c).join(", ")+"\n\n";
 o+="HUBS:\n";for(const x of h){const p=[];if(x.out)p.push(x.out+" out");if(x.inc)p.push(x.inc+" in");o+="  "+x.node.label+" ("+x.node.type+") "+p.join(", ")+"\n"}
 o+="\nCROSS-TYPE:\n";for(const c of ct.slice(0,8))o+="  "+c.s.label+" ("+c.s.type+") "+(c.e.confidence==="INFERRED"?"~~>":"-->")+" "+c.t.label+" ("+c.t.type+") ["+c.e.relation+"]\n"
-o+="\nSUGGESTED:\n";if(h.length)o+="  mc gn "+h[0].node.id+"\n";if(ct.length)o+="  mc gp "+ct[0].s.id+" "+ct[0].t.id+"\n";return o}
-function gl(){return"mc - Project Memory Tool\n\nUsage:\n  mc init              Init + scan repo\n  mc add <text>        Add to MEMORY.md\n  mc add-user <text>   Add to USER.md\n  mc replace <o> <n>   Replace in MEMORY.md\n  mc rm <text>         Remove from MEMORY.md\n  mc ls                List MEMORY.md\n  mc ls-user           List USER.md\n  mc ga <id> <l> <t>   graph add_node\n  mc ge <s> <t> <r> [c] graph add_edge\n  mc gn <id>           graph neighbors\n  mc gp <f> <t>        graph path\n  mc gs                graph stats\n  mc gi                graph insights\n  mc sq <q> [n]        FTS5 search\n  mc setup             Install skill\n  mc help              This help"}
+o+="\nSUGGESTED:\n";if(h.length)o+="  cm gn "+h[0].node.id+"\n";if(ct.length)o+="  cm gp "+ct[0].s.id+" "+ct[0].t.id+"\n";return o}
+function gl(){return"cm - Code-Mem Tool\n\nUsage:\n  cm init              Init + scan repo\n  cm add <text>        Add to MEMORY.md\n  cm add-user <text>   Add to USER.md\n  cm replace <o> <n>   Replace in MEMORY.md\n  cm rm <text>         Remove from MEMORY.md\n  cm ls                List MEMORY.md\n  cm ls-user           List USER.md\n  cm ga <id> <l> <t>   graph add_node\n  cm ge <s> <t> <r> [c] graph add_edge\n  cm gn <id>           graph neighbors\n  cm gp <f> <t>        graph path\n  cm gs                graph stats\n  cm gi                graph insights\n  cm sq <q> [n]        FTS5 search\n  cm setup             Install skill\n  cm help              This help"}
 
 async function sc(c){const rn=c.split("/").pop()||"",no=[],ed=[],nw=new Date().toISOString()
 const ts=[],tl=[];let tt="",bt="",pm="",hd=false,hc=false;const pp=join(c,"package.json")
@@ -64,8 +64,8 @@ for(const t of[pm,tt,bt].filter(Boolean)){const ti=t.toLowerCase().replace(/[^a-
 return{me,no,ed,ts}}
 
 async function setupHarness(){
-const sk='---\nname: mc\ndescription: Persistent project memory via `mc` CLI. Save project facts, graph relationships, search past conversations.\n---\n\n# mc - Memory Tool\n\n## Init\n```bash\nmc init\n```\n\n## Commands\n- `mc add "text"` - save fact\n- `mc add-user "text"` - save preference\n- `mc replace "old" "new"` - update\n- `mc rm "text"` - remove\n- `mc gn <id>` - graph neighbors\n- `mc gp <from> <to>` - graph path\n- `mc gi` - graph insights\n- `mc sq "query"` - search conversations\n\n## Guidelines\nUse `mc` instead of bash/grep for memory and search.\nMEMORY.md 2.2k chars. USER.md 1.3k chars.\nWhen >80% full, consolidate.\n'
-const dirs=[join(process.env.HOME||"",".pi","agent","skills","mc"),join(process.env.HOME||"",".claude","skills","mc"),join(process.env.HOME||"",".codex","skills","mc")]
+const sk='---\nname: cm\ndescription: Persistent project memory via `cm` CLI. Save project facts, graph relationships, search past conversations.\n---\n\n# cm - Code-Mem Tool\n\n## Init\n```bash\ncm init\n```\n\n## Commands\n- `cm add "text"` - save fact\n- `cm add-user "text"` - save preference\n- `cm replace "old" "new"` - update\n- `cm rm "text"` - remove\n- `cm gn <id>` - graph neighbors\n- `cm gp <from> <to>` - graph path\n- `cm gi` - graph insights\n- `cm sq "query"` - search conversations\n\n## Guidelines\nUse `cm` instead of bash/grep for memory and search.\nMEMORY.md 2.2k chars. USER.md 1.3k chars.\nWhen >80% full, consolidate.\n'
+const dirs=[join(process.env.HOME||"",".pi","agent","skills","cm"),join(process.env.HOME||"",".claude","skills","cm"),join(process.env.HOME||"",".codex","skills","cm")]
 let n=0;for(const d of dirs){try{mkdirSync(d,{recursive:true});writeFileSync(join(d,"SKILL.md"),sk,"utf-8");n++}catch{}}
 console.log("Installed skill in "+n+" harness(es)")}
 
@@ -83,13 +83,13 @@ if(s.me){let ex=rd(mp(c,MF));const pa=pe(ex).filter(e=>!e.startsWith("**Project:
 if(s.no.length){let g=rg(mp(c,GF));for(const n of s.no){if(!g.nodes.some(gg=>gg.id===n.id))g.nodes.push(n)}for(const e of s.ed){if(!g.edges.some(gg=>gg.source===e.source&&gg.target===e.target&&gg.relation===e.relation))g.edges.push(e)}wg(mp(c,GF),g)}
 console.log("Memory initialized at "+resolve(dr)+"/\n"+s.ts.length+" technologies, "+s.no.length+" nodes");return}
 if(["add","add-user","replace","rm","ls","ls-user"].includes(cmd)){
-if(!existsSync(mp(c,""))){console.log("No memory/. Run: mc init");process.exit(1)}
+if(!existsSync(mp(c,""))){console.log("No memory/. Run: cm init");process.exit(1)}
 const iu=cmd==="add-user"||cmd==="ls-user",lm=iu?UL:ML,fp=mp(c,iu?UF:MF),ct=rd(fp),en=pe(ct)
 if(cmd==="ls"||cmd==="ls-user"){if(!en.length){console.log("(empty)");return}en.forEach((e,i)=>console.log((i+1)+". "+e));return}
 if(cmd==="add"||cmd==="add-user"){const tx=a.slice(1).join(" ");if(!tx){console.log("text required");process.exit(1)}
 if(en.some(e=>e===tx)){console.log("Already exists.");return}const ad=ct?ct+ES+tx:tx;if(ad.length>lm){console.log("Exceeds "+lm+" limit.");process.exit(1)}
 wr(fp,ad);console.log("Added. "+ad.length+"/"+lm);return}
-if(cmd==="replace"){const ol=a[1],nw=a.slice(2).join(" ");if(!ol||!nw){console.log("Usage: mc replace <old> <new>");process.exit(1)}
+if(cmd==="replace"){const ol=a[1],nw=a.slice(2).join(" ");if(!ol||!nw){console.log("Usage: cm replace <old> <new>");process.exit(1)}
 const ma=en.filter(e=>e.toLowerCase().includes(ol.toLowerCase()));if(!ma.length){console.log('No match "'+ol+'"');process.exit(1)}if(ma.length>1){console.log('"'+ol+'" matches '+ma.length+". Be specific.");process.exit(1)}
 const rp=en.map(e=>e.toLowerCase().includes(ol.toLowerCase())?nw:e);const jo=je(rp);if(jo.length>lm){console.log("Exceeds limit.");process.exit(1)}
 wr(fp,jo);console.log("Replaced. "+jo.length+"/"+lm);return}
@@ -97,7 +97,7 @@ if(cmd==="rm"){const tx=a.slice(1).join(" ");if(!tx){console.log("text required"
 const ma=en.filter(e=>e.toLowerCase().includes(tx.toLowerCase()));if(!ma.length){console.log('No match "'+tx+'"');process.exit(1)}if(ma.length>1){console.log('"'+tx+'" matches '+ma.length+". Be specific.");process.exit(1)}
 const fi=en.filter(e=>!e.toLowerCase().includes(tx.toLowerCase()));const jo=fi.length?je(fi):"";wr(fp,jo);console.log("Removed. "+jo.length+"/"+lm);return}}
 if(cmd.startsWith("g")){if(!["ga","ge","gn","gp","gs","gi"].includes(cmd)){console.log("Unknown graph command");return}
-if(!existsSync(mp(c,GF))){console.log("No graph. Run: mc init");process.exit(1)}
+if(!existsSync(mp(c,GF))){console.log("No graph. Run: cm init");process.exit(1)}
 const g=rg(mp(c,GF)),nw=new Date().toISOString()
 if(cmd==="ga"&&a[1]&&a[2]&&a[3]){const id=a[1],lb=a[2],tp=a[3];if(g.nodes.some(n=>n.id===id)){console.log('"'+id+'" exists.');return}
 g.nodes.push({id,label:lb,type:tp,metadata:{},created:nw});wg(mp(c,GF),g);console.log("Added: "+id+" ("+lb+") ["+tp+"]\n"+g.nodes.length+" nodes, "+g.edges.length+" edges");return}
@@ -108,7 +108,7 @@ if(cmd==="gn"){const id=a[1];if(!id){console.log("id required");process.exit(1)}
 const nd=g.nodes.find(n=>n.id===id);if(!nd){console.log('"'+id+'" not found. Nodes: '+g.nodes.map(n=>n.id).join(", "));return}
 const cn=g.edges.filter(e=>e.source===id||e.target===id);if(!cn.length){console.log(nd.label+" no connections.");return}
 console.log(nd.label+" ("+nd.type+") "+cn.length+":");for(const e of cn){const nid=e.source===id?e.target:e.source;const n=g.nodes.find(x=>x.id===nid);console.log("  "+(e.source===id?"->":"<-")+" "+(n?.label||nid)+" ("+(n?.type||"?")+") ["+e.relation+", "+e.confidence+"]")}return}
-if(cmd==="gp"){const fr=a[1],to=a[2];if(!fr||!to){console.log("Usage: mc gp <from> <to>");process.exit(1)}
+if(cmd==="gp"){const fr=a[1],to=a[2];if(!fr||!to){console.log("Usage: cm gp <from> <to>");process.exit(1)}
 const adj={};for(const n of g.nodes)adj[n.id]=[];for(const e of g.edges){if(adj[e.source])adj[e.source].push({node:e.target,edge:e});if(adj[e.target])adj[e.target].push({node:e.source,edge:e})}
 if(!adj[fr]||!adj[to]){console.log('"'+(adj[fr]?""+to:""+fr)+'" not found.');return}
 const vs=new Set();vs.add(fr);const qq=[{node:fr,path:[]}];let fd=null
@@ -118,8 +118,8 @@ const st=g.nodes.find(x=>x.id===fr);console.log((st?.label||fr)+" -> "+fd.length
 if(cmd==="gs"){console.log(g.nodes.length+" nodes, "+g.edges.length+" edges")}
 if(cmd==="gi"){console.log(gh(g))}return}
 if(cmd==="sq"){const q=a[1],mx=parseInt(a[2])||5;if(!q){console.log("query required");process.exit(1)}
-const dp=mp(c,SF);if(!existsSync(dp)){console.log("No DB. Run: mc init");return}
+const dp=mp(c,SF);if(!existsSync(dp)){console.log("No DB. Run: cm init");return}
 const d=od(dp);const r=sd(d,q,mx);d.close();if(!r.length){console.log("No results.");return}
 console.log(r.length+' for "'+q+'":');for(const re of r)console.log("  ["+re.role+"] "+re.content.slice(0,200))}
-console.log('Unknown "'+cmd+'". Run: mc help')}
+console.log('Unknown "'+cmd+'". Run: cm help')}
 main().catch(e=>{console.error(e.message);process.exit(1)});

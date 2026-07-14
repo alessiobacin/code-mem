@@ -2,14 +2,14 @@
 set -e
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║     🧠 mc — E2E TEST SUITE                 ║"
+echo "║     🧠 cm — E2E TEST SUITE                 ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
-CMD="node $HOME/Desktop/mc/bin/mc"
+CMD="node $HOME/Desktop/code-mem/bin/cm"
 PASS=0
 FAIL=0
-TESTDIR=/tmp/mc-e2e-$$
+TESTDIR=/tmp/cm-e2e-$$
 rm -rf "$TESTDIR"
 mkdir -p "$TESTDIR/src"
 cd "$TESTDIR"
@@ -27,14 +27,14 @@ assert_file() { local label="$1" path="$2"
   else echo "  ❌ $label"; FAIL=$((FAIL+1)); fi }
 
 # TEST 1: help
-echo "━━━ TEST 1: mc help ━━━"
+echo "━━━ TEST 1: cm help ━━━"
 HELP=$($CMD help 2>&1)
-assert_grep "shows init" "mc init" "$HELP"
-assert_grep "shows add" "mc add" "$HELP"
+assert_grep "shows init" "cm init" "$HELP"
+assert_grep "shows add" "cm add" "$HELP"
 echo ""
 
 # TEST 2: init
-echo "━━━ TEST 2: mc init ━━━"
+echo "━━━ TEST 2: cm init ━━━"
 INIT=$($CMD init 2>&1)
 assert_grep "init ok" "Memory initialized" "$INIT"
 assert_file "MEMORY.md" "memory/MEMORY.md"
@@ -45,7 +45,7 @@ assert_grep ".gitignore" "memory/" "$(cat .gitignore 2>/dev/null)"
 echo ""
 
 # TEST 3: add + list
-echo "━━━ TEST 3: mc add ━━━"
+echo "━━━ TEST 3: cm add ━━━"
 A1=$($CMD add "Project uses TypeScript with React" 2>&1)
 assert_grep "add entry" "Added" "$A1"
 $CMD add "Build: Vite, Test: Vitest" > /dev/null 2>&1
@@ -61,7 +61,7 @@ assert_grep "duplicate rejected" "Already" "$DUP"
 echo ""
 
 # TEST 5: replace
-echo "━━━ TEST 5: mc replace ━━━"
+echo "━━━ TEST 5: cm replace ━━━"
 REP=$($CMD replace "PostgreSQL" "SQLite" 2>&1)
 assert_grep "replace entry" "Replaced" "$REP"
 LS2=$($CMD ls 2>&1)
@@ -69,7 +69,7 @@ assert_grep "replace visible" "SQLite" "$LS2"
 echo ""
 
 # TEST 6: remove
-echo "━━━ TEST 6: mc rm ━━━"
+echo "━━━ TEST 6: cm rm ━━━"
 RM=$($CMD rm "Vite" 2>&1)
 assert_grep "remove entry" "Removed" "$RM"
 LS3=$($CMD ls 2>&1)
@@ -77,7 +77,7 @@ grep -q "Vite" <<< "$LS3" && echo "  ❌ remove not working" && FAIL=$((FAIL+1))
 echo ""
 
 # TEST 7: add-user + ls-user
-echo "━━━ TEST 7: mc add-user ━━━"
+echo "━━━ TEST 7: cm add-user ━━━"
 AU=$($CMD add-user "Name: Alessio" 2>&1)
 assert_grep "add-user" "Added" "$AU"
 LU=$($CMD ls-user 2>&1)
@@ -85,7 +85,7 @@ assert_grep "ls-user" "Alessio" "$LU"
 echo ""
 
 # TEST 8: graph add_node + add_edge
-echo "━━━ TEST 8: mc ga + ge ━━━"
+echo "━━━ TEST 8: cm ga + ge ━━━"
 GA1=$($CMD ga app_mod "App Module" module 2>&1)
 assert_grep "add_node" "Added:" "$GA1"
 GA2=$($CMD ga db_cls "Database" class 2>&1)
@@ -97,19 +97,19 @@ echo "  ✅ duplicate edge (exists)" && PASS=$((PASS+1))
 echo ""
 
 # TEST 9: graph stats
-echo "━━━ TEST 9: mc gs ━━━"
+echo "━━━ TEST 9: cm gs ━━━"
 GS=$($CMD gs 2>&1)
 assert_grep "stats" "nodes" "$GS"
 echo ""
 
 # TEST 10: graph neighbors
-echo "━━━ TEST 10: mc gn ━━━"
+echo "━━━ TEST 10: cm gn ━━━"
 GN=$($CMD gn app_mod 2>&1)
 assert_grep "neighbors" "depends_on" "$GN"
 echo ""
 
 # TEST 11: graph path (BFS)
-echo "━━━ TEST 11: mc gp ━━━"
+echo "━━━ TEST 11: cm gp ━━━"
 $CMD ga infra_cls "Infra" infrastructure > /dev/null 2>&1
 $CMD ge db_cls infra_cls depends_on EXTRACTED > /dev/null 2>&1
 GP=$($CMD gp app_mod infra_cls 2>&1)
@@ -117,28 +117,28 @@ assert_grep "BFS path" "hops" "$GP"
 echo ""
 
 # TEST 12: graph insights
-echo "━━━ TEST 12: mc gi ━━━"
+echo "━━━ TEST 12: cm gi ━━━"
 GI=$($CMD gi 2>&1)
 assert_grep "hubs" "HUBS" "$GI"
 assert_grep "cross-type" "CROSS-TYPE" "$GI"
 echo ""
 
 # TEST 13: FTS5 search
-echo "━━━ TEST 13: mc sq ━━━"
+echo "━━━ TEST 13: cm sq ━━━"
 SQ=$($CMD sq "TypeScript" 2>&1)
 assert_grep "search" "results" "$SQ"
 echo ""
 
 # TEST 14: setup skill
-echo "━━━ TEST 14: mc setup ━━━"
+echo "━━━ TEST 14: cm setup ━━━"
 SU=$($CMD setup 2>&1)
 echo "  $SU"
-[ -d "$HOME/.pi/agent/skills/mc" ] && echo "  ✅ pi skill" && PASS=$((PASS+1)) || echo "  ⚠️  pi skill not installed"
-[ -d "$HOME/.claude/skills/mc" ] && echo "  ✅ Claude Code skill" && PASS=$((PASS+1)) || echo "  ⚠️  Claude Code skill not installed"
+[ -d "$HOME/.pi/agent/skills/cm" ] && echo "  ✅ pi skill" && PASS=$((PASS+1)) || echo "  ⚠️  pi skill not installed"
+[ -d "$HOME/.claude/skills/cm" ] && echo "  ✅ Claude Code skill" && PASS=$((PASS+1)) || echo "  ⚠️  Claude Code skill not installed"
 echo ""
 
 # TEST 15: re-init idempotent
-echo "━━━ TEST 15: mc init idempotent ━━━"
+echo "━━━ TEST 15: cm init idempotent ━━━"
 RI=$($CMD init 2>&1)
 assert_grep "re-init" "Memory initialized" "$RI"
 BEFORE=$($CMD ls 2>&1 | wc -l)
