@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+
+const{existsSync,mkdirSync,readFileSync,writeFileSync,appendFileSync,readdirSync,statSync}=require("fs");
+const{join,resolve}=require("path");
+let DB;try{const{DatabaseSync}=require("node:sqlite");DB=DatabaseSync}catch{DB=null}
+const ML=2200,UL=1375,MF="MEMORY.md",UF="USER.md",GF="graph.json",SF="state.db",ES="\n§\n";
+function mp(c,f){return join(c,"memory",f)}
+function rd(p){try{return readFileSync(p,"utf-8")}catch{return""}}
+function wr(p,c){mkdirSync(join(p,".."),{recursive:true});writeFileSync(p,c,"utf-8")}
+function pe(c){if(!c.trim())return[];return c.split(ES).map(e=>e.trim()).filter(Boolean)}
+function je(e){return e.length?e.join(ES)+"\n":""}
+function rg(p){try{return JSON.parse(readFileSync(p,"utf-8"))}catch{return{nodes:[],edges:[]}}}
+function wg(p,d){mkdirSync(join(p,".."),{recursive:true});writeFileSync(p,JSON.stringify(d,null,2),"utf-8")}
+function od(p){if(!DB){console.log("Requires Node 22+");process.exit(1)}
+const d=new DB(p);d.exec("PRAGMA journal_mode=WAL;PRAGMA synchronous=NORMAL");
+d.exec("CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT,session_id TEXT NOT NULL,role TEXT NOT NULL,content TEXT NOT NULL,timestamp TEXT NOT NULL)");
+d.exec("CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(role,content,session_id,timestamp,content=messages,content_rowid=id)");
+d.exec("CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(rowid,role,content,session_id,timestamp)VALUES(new.id,new.role,new.content,new.session_id,new.timestamp);END");
+d.exec("CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN INSERT INTO messages_fts(messages_fts,rowid,role,content,session_id,timestamp)VALUES('delete',old.id,old.role,old.content,old.session_id,old.timestamp);END");
+return d}
+function sd(d,q,l){const s=q.replace(/['"]/g,"").replace(/\s+/g," ").split(" ").filter(Boolean).map(t=>'"'+t+'"*').join(" ");if(!s)return[];return d.prepare("SELECT role,content,session_id,timestamp FROM messages_fts WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?").all(s,l)}
+function eg(c){const p=join(c,".gitignore"),e="\n# Project memory\nmemory/\n";try{const x=rd(p);if(!x.includes("\nmemory/"))appendFileSync(p,e,"utf-8")}catch{wr(p,e)}}
+function gh(g){if(!g.nodes.length)return"Graph empty.\n";const d={};for(const n of g.nodes)d[n.id]={node:n,c:0,inc:0,out:0}
+for(const e of g.edges){if(d[e.source]){d[e.source].c++;d[e.source].out++}if(d[e.target]){d[e.target].c++;d[e.target].inc++}}
+const h=Object.values(d).sort((a,b)=>b.c-a.c).slice(0,5);const ct=[];for(const e of g.edges){const s=g.nodes.find(n=>n.id===e.source),t=g.nodes.find(n=>n.id===e.target);if(s&&t&&s.type!==t.type)ct.push({s,t,e})}
+const tc={};for(const n of g.nodes)tc[n.type]=(tc[n.type]||0)+1
+let o=g.nodes.length+" nodes, "+g.edges.length+" edges\n";o+="Types: "+Object.entries(tc).map(([t,c])=>t+": "+c).join(", ")+"\n\n";
+o+="HUBS:\n";for(const x of h){const p=[];if(x.out)p.push(x.out+" out");if(x.inc)p.push(x.inc+" in");o+="  "+x.node.label+" ("+x.node.type+") "+p.join(", ")+"\n"}
+o+="\nCROSS-TYPE:\n";for(const c of ct.slice(0,8))o+="  "+c.s.label+" ("+c.s.type+") "+(c.e.confidence==="INFERRED"?"~~>":"-->")+" "+c.t.label+" ("+c.t.type+") ["+c.e.relation+"]\n"
+o+="\nSUGGESTED:\n";if(h.length)o+="  mc gn "+h[0].node.id+"\n";if(ct.length)o+="  mc gp "+ct[0].s.id+" "+ct[0].t.id+"\n";return o}
+function gl(){return"mc - Project Memory Tool\n\nUsage:\n  mc init              Init + scan repo\n  mc add <text>        Add to MEMORY.md\n  mc add-user <text>   Add to USER.md\n  mc replace <o> <n>   Replace in MEMORY.md\n  mc rm <text>         Remove from MEMORY.md\n  mc ls                List MEMORY.md\n  mc ls-user           List USER.md\n  mc ga <id> <l> <t>   graph add_node\n  mc ge <s> <t> <r> [c] graph add_edge\n  mc gn <id>           graph neighbors\n  mc gp <f> <t>        graph path\n  mc gs                graph stats\n  mc gi                graph insights\n  mc sq <q> [n]        FTS5 search\n  mc setup             Install skill\n  mc help              This help"}
+
+async function sc(c){const rn=c.split("/").pop()||"",no=[],ed=[],nw=new Date().toISOString()
+const ts=[],tl=[];let tt="",bt="",pm="",hd=false,hc=false;const pp=join(c,"package.json")
+if(existsSync(pp)){try{const pk=JSON.parse(readFileSync(pp,"utf-8"))
+const dn=Object.keys({...pk.dependencies,...pk.devDependencies}||{})
+if(dn.some(d=>d.startsWith("typescript")))ts.push("TypeScript")
+const fw={react:"React",next:"Next.js","@angular/core":"Angular",express:"Express","@nestjs/core":"NestJS",vue:"Vue",svelte:"Svelte",hono:"Hono"}
+for(const[k,v]of Object.entries(fw))if(dn.some(d=>d===k||d.startsWith(k+"/"))){if(!ts.includes(v))ts.push(v)}
+const tm={vitest:"Vitest",jest:"Jest","@playwright/test":"Playwright",cypress:"Cypress"}
+for(const[k,v]of Object.entries(tm))if(dn.some(d=>d.startsWith(k))){tt=v;break}
+const bm={vite:"Vite",next:"Next.js",tsc:"tsc",webpack:"Webpack",esbuild:"esbuild"}
+for(const[k,v]of Object.entries(bm))if(dn.some(d=>d.startsWith(k))){bt=v;break}
+const pm_=pk.packageManager||"";if(pm_.startsWith("pnpm"))pm="pnpm";else if(pm_.startsWith("yarn"))pm="Yarn";else if(pm_.startsWith("bun"))pm="Bun";else if(pm_.startsWith("npm"))pm="npm"
+else{if(existsSync(join(c,"pnpm-lock.yaml")))pm="pnpm";else if(existsSync(join(c,"yarn.lock")))pm="Yarn";else if(existsSync(join(c,"bun.lockb")))pm="Bun";else if(existsSync(join(c,"package-lock.json")))pm="npm"}
+if(dn.some(d=>d.startsWith("eslint")))ts.push("ESLint");if(dn.some(d=>d.startsWith("prettier")))ts.push("Prettier")
+if(dn.some(d=>d.startsWith("tailwindcss")))ts.push("Tailwind CSS");if(dn.some(d=>d.startsWith("prisma")))ts.push("Prisma")
+if(dn.some(d=>d.startsWith("pg")||d==="postgres"))ts.push("PostgreSQL")
+const sc_=pk.scripts||{};if(sc_.build)tl.push("build: "+sc_.build.slice(0,40));if(sc_.test)tl.push("test: "+sc_.test.slice(0,40));if(sc_.lint)tl.push("lint: "+sc_.lint.slice(0,40));if(sc_.dev||sc_.start)tl.push("dev: "+(sc_.dev||sc_.start).slice(0,40))
+if(pk.name)no.push({id:"project_root",label:pk.name,type:"project",metadata:{path:c},created:nw})}catch{}}
+const tp=join(c,"tsconfig.json");if(existsSync(tp)){try{const t=JSON.parse(readFileSync(tp,"utf-8"));if(t.compilerOptions?.strict)ts.push("strict mode")}catch{}}
+if(existsSync(join(c,"Dockerfile"))){hd=true;tl.push("Docker")}
+if(existsSync(join(c,".github/workflows"))){hc=true;tl.push("GitHub Actions")}
+const le={ts:"TypeScript",tsx:"TSX",js:"JavaScript",jsx:"JSX",rs:"Rust",go:"Go",py:"Python",rb:"Ruby",java:"Java",swift:"Swift",c:"C",cpp:"C++",cs:"C#",sql:"SQL",svelte:"Svelte",vue:"Vue",css:"CSS",html:"HTML"}
+const fl=new Set(),ds=[];function wd(dp,dth){if(dth>3)return;let e=[];try{e=readdirSync(dp)}catch{return}
+for(const en of e){if(en.startsWith(".")||["node_modules","dist","build","memory"].includes(en))continue;const fu=join(dp,en);try{const s=statSync(fu)
+if(s.isDirectory()){if(dth===0&&!ds.includes(en))ds.push(en);wd(fu,dth+1)}else if(s.isFile()){const ex=en.split(".").pop()?.toLowerCase()||"";if(ex&&le[ex])fl.add(le[ex])}}catch{}}}
+wd(c);for(const l of fl){if(!ts.includes(l))ts.push(l)}
+const me=["**Project:** "+rn,"**Tech stack:** "+ts.join(", "),pm?"**PM:** "+pm:null,tt?"**Test:** "+tt:null,bt?"**Build:** "+bt:null,hd?"**Docker:** Yes":null,hc?"**CI:** GitHub Actions":null,"**Dirs:** "+ds.slice(0,6).join(", ")].filter(Boolean).join("\n")
+if(!no.some(n=>n.id==="project_root"))no.push({id:"project_root",label:rn||c.split("/").pop(),type:"project",metadata:{path:c},created:nw})
+for(const d of ds){const ni="dir_"+d.replace(/[^a-z0-9_]/g,"_");if(!no.some(n=>n.id===ni)){no.push({id:ni,label:d+"/",type:"directory",metadata:{},created:nw});ed.push({source:"project_root",target:ni,relation:"contains",confidence:"EXTRACTED",created:nw})}}
+const st=new Set();for(const t of ts){const ti=t.toLowerCase().replace(/[^a-z0-9_]/g,"_");if(st.has(ti))continue;st.add(ti);if(!no.some(n=>n.id===ti)){no.push({id:ti,label:t,type:"technology",metadata:{},created:nw});ed.push({source:"project_root",target:ti,relation:"uses",confidence:"EXTRACTED",created:nw})}}
+for(const t of[pm,tt,bt].filter(Boolean)){const ti=t.toLowerCase().replace(/[^a-z0-9_]/g,"_");if(!no.some(n=>n.id===ti)&&!st.has(ti)){no.push({id:ti,label:t,type:"tool",metadata:{},created:nw});ed.push({source:"project_root",target:ti,relation:"uses",confidence:"EXTRACTED",created:nw})}}
+return{me,no,ed,ts}}
+
+async function setupHarness(){
+const sk='---\nname: mc\ndescription: Persistent project memory via `mc` CLI. Save project facts, graph relationships, search past conversations.\n---\n\n# mc - Memory Tool\n\n## Init\n```bash\nmc init\n```\n\n## Commands\n- `mc add "text"` - save fact\n- `mc add-user "text"` - save preference\n- `mc replace "old" "new"` - update\n- `mc rm "text"` - remove\n- `mc gn <id>` - graph neighbors\n- `mc gp <from> <to>` - graph path\n- `mc gi` - graph insights\n- `mc sq "query"` - search conversations\n\n## Guidelines\nUse `mc` instead of bash/grep for memory and search.\nMEMORY.md 2.2k chars. USER.md 1.3k chars.\nWhen >80% full, consolidate.\n'
+const dirs=[join(process.env.HOME||"",".pi","agent","skills","mc"),join(process.env.HOME||"",".claude","skills","mc"),join(process.env.HOME||"",".codex","skills","mc")]
+let n=0;for(const d of dirs){try{mkdirSync(d,{recursive:true});writeFileSync(join(d,"SKILL.md"),sk,"utf-8");n++}catch{}}
+console.log("Installed skill in "+n+" harness(es)")}
+
+async function main(){const a=process.argv.slice(2),c=process.cwd()
+if(!a.length||a[0]==="help"||a[0]==="-h"){console.log(gl());return}
+const cmd=a[0]
+if(cmd==="setup"){await setupHarness();return}
+if(cmd==="init"){const dr=mp(c,"");mkdirSync(dr,{recursive:true})
+if(!existsSync(mp(c,MF)))wr(mp(c,MF),"# Project Memory\n\n---\n\nSeparate entries with section symbol.\nChar limit: "+ML+".\n\n")
+if(!existsSync(mp(c,UF)))wr(mp(c,UF),"# User Profile\n\n---\n\nChar limit: "+UL+".\n\n")
+if(!existsSync(mp(c,GF)))wg(mp(c,GF),{nodes:[],edges:[]})
+if(!existsSync(mp(c,SF))){const nd=od(mp(c,SF));nd.close()}
+eg(c);console.log("Scanning repo...");const s=await sc(c)
+if(s.me){let ex=rd(mp(c,MF));const pa=pe(ex).filter(e=>!e.startsWith("**Project:"));pa.push(s.me);const jo=je(pa);wr(mp(c,MF),jo.length>ML?jo.slice(0,ML-50)+"\n... (truncated)":jo)}
+if(s.no.length){let g=rg(mp(c,GF));for(const n of s.no){if(!g.nodes.some(gg=>gg.id===n.id))g.nodes.push(n)}for(const e of s.ed){if(!g.edges.some(gg=>gg.source===e.source&&gg.target===e.target&&gg.relation===e.relation))g.edges.push(e)}wg(mp(c,GF),g)}
+console.log("Memory initialized at "+resolve(dr)+"/\n"+s.ts.length+" technologies, "+s.no.length+" nodes");return}
+if(["add","add-user","replace","rm","ls","ls-user"].includes(cmd)){
+if(!existsSync(mp(c,""))){console.log("No memory/. Run: mc init");process.exit(1)}
+const iu=cmd==="add-user"||cmd==="ls-user",lm=iu?UL:ML,fp=mp(c,iu?UF:MF),ct=rd(fp),en=pe(ct)
+if(cmd==="ls"||cmd==="ls-user"){if(!en.length){console.log("(empty)");return}en.forEach((e,i)=>console.log((i+1)+". "+e));return}
+if(cmd==="add"||cmd==="add-user"){const tx=a.slice(1).join(" ");if(!tx){console.log("text required");process.exit(1)}
+if(en.some(e=>e===tx)){console.log("Already exists.");return}const ad=ct?ct+ES+tx:tx;if(ad.length>lm){console.log("Exceeds "+lm+" limit.");process.exit(1)}
+wr(fp,ad);console.log("Added. "+ad.length+"/"+lm);return}
+if(cmd==="replace"){const ol=a[1],nw=a.slice(2).join(" ");if(!ol||!nw){console.log("Usage: mc replace <old> <new>");process.exit(1)}
+const ma=en.filter(e=>e.toLowerCase().includes(ol.toLowerCase()));if(!ma.length){console.log('No match "'+ol+'"');process.exit(1)}if(ma.length>1){console.log('"'+ol+'" matches '+ma.length+". Be specific.");process.exit(1)}
+const rp=en.map(e=>e.toLowerCase().includes(ol.toLowerCase())?nw:e);const jo=je(rp);if(jo.length>lm){console.log("Exceeds limit.");process.exit(1)}
+wr(fp,jo);console.log("Replaced. "+jo.length+"/"+lm);return}
+if(cmd==="rm"){const tx=a.slice(1).join(" ");if(!tx){console.log("text required");process.exit(1)}
+const ma=en.filter(e=>e.toLowerCase().includes(tx.toLowerCase()));if(!ma.length){console.log('No match "'+tx+'"');process.exit(1)}if(ma.length>1){console.log('"'+tx+'" matches '+ma.length+". Be specific.");process.exit(1)}
+const fi=en.filter(e=>!e.toLowerCase().includes(tx.toLowerCase()));const jo=fi.length?je(fi):"";wr(fp,jo);console.log("Removed. "+jo.length+"/"+lm);return}}
+if(cmd.startsWith("g")){if(!["ga","ge","gn","gp","gs","gi"].includes(cmd)){console.log("Unknown graph command");return}
+if(!existsSync(mp(c,GF))){console.log("No graph. Run: mc init");process.exit(1)}
+const g=rg(mp(c,GF)),nw=new Date().toISOString()
+if(cmd==="ga"&&a[1]&&a[2]&&a[3]){const id=a[1],lb=a[2],tp=a[3];if(g.nodes.some(n=>n.id===id)){console.log('"'+id+'" exists.');return}
+g.nodes.push({id,label:lb,type:tp,metadata:{},created:nw});wg(mp(c,GF),g);console.log("Added: "+id+" ("+lb+") ["+tp+"]\n"+g.nodes.length+" nodes, "+g.edges.length+" edges");return}
+if(cmd==="ge"&&a[1]&&a[2]&&a[3]){const sr=a[1],tg=a[2],rl=a[3],cf=a[4]||"EXTRACTED";if(!g.nodes.some(n=>n.id===sr)){console.log('Source "'+sr+'" not found.');return}if(!g.nodes.some(n=>n.id===tg)){console.log('Target "'+tg+'" not found.');return}
+if(g.edges.some(e=>e.source===sr&&e.target===tg&&e.relation===rl)){console.log("Edge exists.");return}
+g.edges.push({source:sr,target:tg,relation:rl,confidence:cf,created:nw});wg(mp(c,GF),g);console.log(sr+" --["+rl+"]--> "+tg+" ["+cf+"]\n"+g.nodes.length+" nodes, "+g.edges.length+" edges");return}
+if(cmd==="gn"){const id=a[1];if(!id){console.log("id required");process.exit(1)}
+const nd=g.nodes.find(n=>n.id===id);if(!nd){console.log('"'+id+'" not found. Nodes: '+g.nodes.map(n=>n.id).join(", "));return}
+const cn=g.edges.filter(e=>e.source===id||e.target===id);if(!cn.length){console.log(nd.label+" no connections.");return}
+console.log(nd.label+" ("+nd.type+") "+cn.length+":");for(const e of cn){const nid=e.source===id?e.target:e.source;const n=g.nodes.find(x=>x.id===nid);console.log("  "+(e.source===id?"->":"<-")+" "+(n?.label||nid)+" ("+(n?.type||"?")+") ["+e.relation+", "+e.confidence+"]")}return}
+if(cmd==="gp"){const fr=a[1],to=a[2];if(!fr||!to){console.log("Usage: mc gp <from> <to>");process.exit(1)}
+const adj={};for(const n of g.nodes)adj[n.id]=[];for(const e of g.edges){if(adj[e.source])adj[e.source].push({node:e.target,edge:e});if(adj[e.target])adj[e.target].push({node:e.source,edge:e})}
+if(!adj[fr]||!adj[to]){console.log('"'+(adj[fr]?""+to:""+fr)+'" not found.');return}
+const vs=new Set();vs.add(fr);const qq=[{node:fr,path:[]}];let fd=null
+while(qq.length){const cr=qq.shift();if(cr.node===to){fd=cr.path;break}for(const nb of adj[cr.node]||[]){if(!vs.has(nb.node)){vs.add(nb.node);const n=g.nodes.find(x=>x.id===nb.node);qq.push({node:nb.node,path:[...cr.path,{label:n?.label||nb.node,edge:nb.edge.relation}]})}}}
+if(!fd){console.log('No path "'+fr+'" -> "'+to+'".');return}
+const st=g.nodes.find(x=>x.id===fr);console.log((st?.label||fr)+" -> "+fd.length+" hops:");for(const p of fd)console.log("  --"+p.edge+"--> "+p.label);return}
+if(cmd==="gs"){console.log(g.nodes.length+" nodes, "+g.edges.length+" edges")}
+if(cmd==="gi"){console.log(gh(g))}return}
+if(cmd==="sq"){const q=a[1],mx=parseInt(a[2])||5;if(!q){console.log("query required");process.exit(1)}
+const dp=mp(c,SF);if(!existsSync(dp)){console.log("No DB. Run: mc init");return}
+const d=od(dp);const r=sd(d,q,mx);d.close();if(!r.length){console.log("No results.");return}
+console.log(r.length+' for "'+q+'":');for(const re of r)console.log("  ["+re.role+"] "+re.content.slice(0,200))}
+console.log('Unknown "'+cmd+'". Run: mc help')}
+main().catch(e=>{console.error(e.message);process.exit(1)});
