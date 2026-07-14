@@ -1,6 +1,22 @@
-# 🧠 code-mem — Project Memory Tool
+# code-mem
 
-One binary, zero dependencies. Persistent project memory for **any** coding agent (pi, Claude Code, Codex, Cursor, Copilot).
+Persistent project memory for coding agents and developers.
+
+`code-mem` keeps a local memory layer inside each repo:
+
+- typed memories in SQLite
+- generated `MEMORY.md` and `USER.md` projections
+- a lightweight JSON graph
+- FTS5 search over stored conversation logs
+
+It is designed to stay simple:
+
+- one CLI
+- local files only
+- no services to run
+- no external database
+
+Requires Node.js 22+. If your Node build exposes `node:sqlite` only behind `--experimental-sqlite`, `cm` re-execs itself with that flag automatically.
 
 ## Install
 
@@ -8,7 +24,7 @@ One binary, zero dependencies. Persistent project memory for **any** coding agen
 curl -fsSL https://raw.githubusercontent.com/alessiobacin/code-mem/main/install.sh | bash
 ```
 
-Or manually:
+Manual install:
 
 ```bash
 mkdir -p ~/.local/bin
@@ -17,59 +33,515 @@ chmod +x ~/.local/bin/cm
 export PATH="$PATH:$HOME/.local/bin"
 ```
 
-Requires Node.js 22+.
+## Quick Start
 
-## Usage
+Initialize memory in a repo:
 
 ```bash
-cm init              # Initialize memory in current project
-cm add "text"        # Save fact to MEMORY.md
-cm add-user "text"   # Save preference to USER.md
-cm replace "old" "new"  # Update fact
-cm rm "text"         # Remove fact
-cm ls                # List MEMORY.md entries
-cm ga <id> <label> <type>  # graph add_node
-cm ge <src> <tgt> <rel>    # graph add_edge
-cm gn <id>           # graph neighbors
-cm gp <from> <to>    # graph path (BFS)
-cm gs                # graph stats
-cm gi                # graph insights (hub nodes, cross-type)
-cm sq "query"        # FTS5 search past conversations
-cm help              # Show help
+cm init
 ```
 
-## Setup for coding agents
+Save a durable project fact:
 
 ```bash
-# Auto-detect installed harnesses
+cm save --kind fact "The API uses signed webhook verification."
+```
+
+Save a decision:
+
+```bash
+cm save --kind decision --title "Use Vitest" \
+  "Vitest is the default test runner for unit tests."
+```
+
+Save a user preference:
+
+```bash
+cm save --kind preference --layer user \
+  "Prefer concise answers and file references."
+```
+
+Recall relevant memory for a task:
+
+```bash
+cm recall "fix flaky e2e tests" --level 2
+```
+
+Inspect the retrieval plan without recalling:
+
+```bash
+cm plan "deploy preview build"
+```
+
+Update the installed CLI from GitHub:
+
+```bash
+cm update
+```
+
+Regenerate the markdown projections:
+
+```bash
+cm project
+```
+
+## What `cm init` Creates
+
+```text
+your-project/
+└── memory/
+    ├── MEMORY.md
+    ├── USER.md
+    ├── graph.json
+    └── state.db
+```
+
+## Architecture
+
+`state.db` is the source of truth.
+
+- `memory_items`: typed project memories
+- `memory_context`: branch, cwd, agent, task, files, tags
+- `memory_links`: relationships between memories
+- `messages` + `messages_fts`: searchable conversation log
+
+`MEMORY.md` and `USER.md` are generated projections from the database. They should be treated as read-friendly outputs, not as the primary storage layer.
+
+## Command Reference
+
+### `cm init`
+
+Initialize local memory in the current repo.
+
+What it does:
+
+- creates `memory/`
+- creates `state.db`
+- creates `graph.json`
+- imports legacy `MEMORY.md` / `USER.md` entries if present
+- scans the repo and stores a project snapshot
+- regenerates markdown projections
+
+Usage:
+
+```bash
+cm init
+```
+
+### `cm setup`
+
+Install the `cm` skill into supported agent harnesses found on the machine.
+
+Usage:
+
+```bash
 cm setup
 ```
 
-Or manually:
-- `~/.pi/agent/skills/cm/SKILL.md`
-- `~/.claude/skills/cm/SKILL.md`
-- `~/.codex/skills/cm/SKILL.md`
-- `~/.cursor/skills/cm/SKILL.md`
+### `cm update`
 
-## What it creates
+Check the GitHub version of `cm`, download the latest CLI, replace the current executable, and refresh installed skill files.
 
-```
-your-project/
-└── memory/
-    ├── MEMORY.md         # Agent notes (always in context)
-    ├── USER.md           # User preferences (always in context)
-    ├── graph.json        # Knowledge graph (on-demand)
-    └── state.db          # SQLite FTS5 (auto-log conversations)
+Usage:
+
+```bash
+cm update
+cm update --force
 ```
 
-## How it works
+Notes:
 
-| File | Cost | Purpose |
-|---|---|---|
-| MEMORY.md | ~800 tokens fixed | Project facts, conventions, workarounds |
-| USER.md | ~500 tokens fixed | Your preferences, communication style |
-| graph.json | 0 tokens | Entity relationships — query on demand |
-| state.db | 0 tokens | FTS5 — all conversations searchable |
+- `cm update` compares the local CLI version with the remote `main` branch version.
+- `--force` reinstalls even if the versions match.
+- The command updates the current executable path and rewrites harness skill files when possible.
+
+### `cm help`
+
+Show CLI help.
+
+Usage:
+
+```bash
+cm help
+```
+
+## Memory Write Commands
+
+### `cm save`
+
+Save a typed memory item.
+
+Usage:
+
+```bash
+cm save [--kind KIND] [--layer LAYER] [--title TITLE] [--summary TEXT] \
+  [--confidence 0.0-1.0] [--tag tag1,tag2] [--file path1,path2] <text>
+```
+
+Supported kinds:
+
+- `fact`
+- `decision`
+- `procedure`
+- `issue`
+- `preference`
+- `artifact`
+
+Supported layers:
+
+- `working`
+- `episodic`
+- `semantic`
+- `procedural`
+- `user`
+
+Examples:
+
+```bash
+cm save --kind issue "Fake timers break this test suite when run in parallel."
+cm save --kind procedure --layer procedural \
+  --title "Reset local DB" \
+  --file scripts/reset-db.sh \
+  "Run scripts/reset-db.sh and reseed test fixtures."
+cm save --kind preference --layer user \
+  "Prefer patches over full rewrites."
+```
+
+### `cm add`
+
+Legacy shortcut for saving a project fact.
+
+Equivalent to:
+
+```bash
+cm save --kind fact --layer semantic "<text>"
+```
+
+Usage:
+
+```bash
+cm add "Project uses React Server Components."
+```
+
+### `cm add-user`
+
+Legacy shortcut for saving a user preference.
+
+Equivalent to:
+
+```bash
+cm save --kind preference --layer user "<text>"
+```
+
+Usage:
+
+```bash
+cm add-user "Prefer short commit messages."
+```
+
+### `cm replace`
+
+Replace the body of one active memory matched by id, title, or body text.
+
+Usage:
+
+```bash
+cm replace <match> <new text>
+```
+
+Example:
+
+```bash
+cm replace "Vitest" "Vitest is the default runner; Playwright is only for e2e."
+```
+
+### `cm rm`
+
+Archive one active memory matched by id, title, or body text.
+
+Usage:
+
+```bash
+cm rm <match>
+```
+
+Example:
+
+```bash
+cm rm "old webpack workaround"
+```
+
+### `cm archive`
+
+Archive a memory by exact id.
+
+Usage:
+
+```bash
+cm archive <memory-id>
+```
+
+### `cm touch`
+
+Mark a memory as recently useful by incrementing its access count and last-accessed timestamp.
+
+Usage:
+
+```bash
+cm touch <memory-id>
+```
+
+### `cm link`
+
+Create a relationship between two memories.
+
+Usage:
+
+```bash
+cm link <source-id> <target-id> <relation> [weight]
+```
+
+Example:
+
+```bash
+cm link mem_issue_a mem_proc_b solved_by 1
+```
+
+## Memory Read Commands
+
+### `cm ls`
+
+List active non-user memories.
+
+Usage:
+
+```bash
+cm ls
+```
+
+### `cm ls-user`
+
+List active user preference memories.
+
+Usage:
+
+```bash
+cm ls-user
+```
+
+### `cm recent`
+
+List most recently updated memories.
+
+Usage:
+
+```bash
+cm recent
+cm recent 20
+```
+
+### `cm plan`
+
+Show the local retrieval plan for a task.
+
+The planner is rule-based. It classifies the task and prioritizes memory kinds before retrieval.
+
+Usage:
+
+```bash
+cm plan <task>
+```
+
+Example:
+
+```bash
+cm plan "refactor auth middleware"
+```
+
+### `cm recall`
+
+Retrieve memories relevant to a task.
+
+Usage:
+
+```bash
+cm recall <task> [--level 1|2|3] [--limit N]
+```
+
+Levels:
+
+- `1`: titles only
+- `2`: title + summary + light context
+- `3`: full body + tags + files
+
+Examples:
+
+```bash
+cm recall "fix oauth callback bug"
+cm recall "deploy staging release" --level 1
+cm recall "write onboarding docs" --level 3 --limit 5
+```
+
+### `cm project`
+
+Regenerate `MEMORY.md` and `USER.md` from `state.db`.
+
+Use it when you want to refresh the always-in-context projection without changing any memory entries.
+
+Usage:
+
+```bash
+cm project
+```
+
+### `cm consolidate`
+
+Promote active `working` and `episodic` items into longer-lived layers and refresh projections.
+
+Current behavior:
+
+- normalizes summaries
+- promotes coding procedures to `procedural`
+- promotes facts/issues/decisions into `semantic`
+- rebuilds `MEMORY.md` and `USER.md`
+
+Usage:
+
+```bash
+cm consolidate
+```
+
+## Graph Commands
+
+### `cm ga`
+
+Add a node to `graph.json`.
+
+Usage:
+
+```bash
+cm ga <id> <label> <type>
+```
+
+Example:
+
+```bash
+cm ga auth_mod "Auth Module" module
+```
+
+### `cm ge`
+
+Add an edge to `graph.json`.
+
+Usage:
+
+```bash
+cm ge <source> <target> <relation> [confidence]
+```
+
+Example:
+
+```bash
+cm ge auth_mod db_mod depends_on EXTRACTED
+```
+
+### `cm gn`
+
+Show node neighbors.
+
+Usage:
+
+```bash
+cm gn <id>
+```
+
+### `cm gp`
+
+Show a BFS path between two nodes.
+
+Usage:
+
+```bash
+cm gp <from> <to>
+```
+
+### `cm gs`
+
+Show graph stats.
+
+Usage:
+
+```bash
+cm gs
+```
+
+### `cm gi`
+
+Show graph insights such as hubs and cross-type edges.
+
+Usage:
+
+```bash
+cm gi
+```
+
+## Search
+
+### `cm sq`
+
+Search stored conversation logs through SQLite FTS5.
+
+Usage:
+
+```bash
+cm sq <query> [limit]
+```
+
+Example:
+
+```bash
+cm sq "TypeScript strict mode" 10
+```
+
+## Retrieval Model
+
+`cm recall` uses a local retrieval plan plus deterministic ranking.
+
+Planner task kinds:
+
+- `debug`
+- `feature`
+- `refactor`
+- `review`
+- `docs`
+- `deploy`
+- `default`
+
+Ranking considers:
+
+- keyword match
+- recency
+- access count
+- context match
+- task-kind priority
+- number of memory links
+
+No external model is required for retrieval.
+
+## Recommended Workflow
+
+1. Run `cm init` once per repo.
+2. Save durable learnings with `cm save`.
+3. Use `cm recall "<task>"` before starting substantial work.
+4. Use `cm touch <id>` on especially useful memories.
+5. Run `cm consolidate` after a debugging or implementation session.
+6. Let agents read `MEMORY.md` and `USER.md` as compact projections.
+
+## Notes
+
+- `MEMORY.md` and `USER.md` are generated; direct edits may be overwritten by `cm project` or `cm consolidate`.
+- Legacy commands still work for compatibility.
+- `graph.json` remains intentionally simple and separate from the SQLite memory tables.
 
 ## License
 

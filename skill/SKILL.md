@@ -1,35 +1,55 @@
 ---
 name: cm
 description: >-
-  Persistent project memory via `cm` CLI. Save project facts, preferences,
-  knowledge graph, and search past conversations. More efficient than bash/grep
-  - uses SQLite FTS5 and structured JSON files.
+  Persistent project memory via `cm` CLI. Save typed project memories,
+  preferences, retrieval plans, graph relationships, and search past
+  conversations from SQLite.
 ---
 
 # cm - Code-Mem Tool
 
-## Init
+Use `cm` for project memory before reaching for ad-hoc grep across previous sessions.
+
+## Initialize
 
 ```bash
 cm init
 ```
 
-## Commands
+## Maintain
 
-- `cm add "text"` - save fact to MEMORY.md
-- `cm add-user "text"` - save preference to USER.md
-- `cm replace "old" "new"` - update fact
-- `cm rm "text"` - remove fact
-- `cm gn <id>` - graph neighbors
+```bash
+cm update
+```
+
+## Core Commands
+
+- `cm save --kind decision "Use Vitest for unit tests"` - save a typed memory
+- `cm recall "fix flaky tests" --level 2` - retrieve relevant memory for a task
+- `cm plan "deploy preview build"` - inspect the retrieval plan
+- `cm recent` - list recent memories
+- `cm consolidate` - promote and normalize memories
+- `cm project` - regenerate `MEMORY.md` and `USER.md`
+
+## Legacy Compatibility
+
+- `cm add "text"` - save a fact
+- `cm add-user "text"` - save a user preference
+- `cm ls` - list project memories
+- `cm ls-user` - list user preferences
+
+## Graph and Search
+
+- `cm ga <id> <label> <type>` - add graph node
+- `cm ge <src> <tgt> <rel>` - add graph edge
+- `cm gn <id>` - list graph neighbors
 - `cm gp <from> <to>` - graph path
-- `cm gi` - graph insights (hub nodes, cross-type)
-- `cm sq "query"` - search past conversations
-- `cm ls` - list MEMORY.md entries
+- `cm gi` - graph insights
+- `cm sq "query"` - search stored conversation logs
 
 ## Guidelines
 
-1. Use `cm` instead of bash/grep for memory and search
-2. Save proactively when learning something important
-3. MEMORY.md = agent notes (2.2k chars). USER.md = preferences (1.3k chars)
-4. graph.json = entity relationships. state.db = FTS5 conversation log
-5. When >80% full, consolidate before adding
+1. Save durable facts, decisions, procedures, issues, and preferences with `cm save`.
+2. Use `cm recall` at the start of substantial coding tasks.
+3. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`.
+4. Use `cm consolidate` after debugging or implementation sessions to keep the projection compact.
