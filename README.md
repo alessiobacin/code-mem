@@ -525,8 +525,10 @@ Ranking considers:
 - context match
 - task-kind priority
 - number of memory links
+- **trigram similarity** — fallback embedding che cattura varianti morfologiche e refusi senza modelli esterni
+- **Ollama embedding** (opzionale) — similarità semantica via `nomic-embed-text`
 
-No external model is required for retrieval.
+No external model is required for retrieval. If Ollama is present, it is preferred; if absent, trigram similarity provides semantic-like matching at zero dependency cost.
 
 ## Recommended Workflow
 
@@ -569,7 +571,7 @@ cm watch --daemon               # starts background daemon
 ollama pull nomic-embed-text
 ```
 
-If Ollama is absent, all commands degrade gracefully to keyword-only mode.
+If Ollama is absent, all commands degrade gracefully to a **trigram-based fallback** that catches morphological variants and typos — no functionality loss, no extra dependencies.
 
 ### Typical Workflow
 
@@ -578,8 +580,6 @@ If Ollama is absent, all commands degrade gracefully to keyword-only mode.
 3. `cm setup` — installs skill and SessionStart hook in `.claude/settings.json`
 4. `cm watch --daemon` — starts background daemon (embedding + consolidate + project)
 5. Work normally. code-mem remembers everything automatically.
-
-## Comparison with Other Memory Systems
 
 ## Comparison with Other Memory Systems
 
@@ -600,4 +600,12 @@ If Ollama is absent, all commands degrade gracefully to keyword-only mode.
 
 ### Summary
 
-**code-mem** is the only system that combines zero dependencies, agent-agnostic support, typed memory layers, and local-only storage in a single CLI binary. It trades semantic search and cloud sync for simplicity, determinism, and portability — making it the best fit for teams that want persistent project memory without external services or vendor lock-in.
+### code-mem is the only system that combines zero dependencies, agent-agnostic support, typed memory layers, and local-only storage in a single CLI binary. It trades semantic search and cloud sync for simplicity, determinism, and portability — making it the best fit for teams that want persistent project memory without external services or vendor lock-in.
+
+### Approfondimenti
+
+Per una trattazione più estesa, vedi:
+
+- **[docs/FILOSOFIA.md](docs/FILOSOFIA.md)** — la filosofia alla base del progetto: local-first, tipi e strati, ranking deterministico, zero dipendenze, perché la semplicità vince
+- **[docs/COMPARAZIONE.md](docs/COMPARAZIONE.md)** — comparazione dettagliata con claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, e Letta (MemGPT), con vantaggi, svantaggi, e scenari d'uso per ciascuno
+- **[docs/TEST-COMPARATIVI.md](docs/TEST-COMPARATIVI.md)** — test pratici fianco a fianco: esegui code-mem e un altro sistema in due terminali e vedi la differenza reale nel ritrovare decisioni, workaround, e informazioni cross-sessione

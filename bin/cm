@@ -227,6 +227,35 @@ function cosineSimilarity(a, b) {
   return denom === 0 ? 0 : dot / denom;
 }
 
+// --- trigram embedding (zero dipendenze, fallback universale) ---
+const TRI_DIM = 8000;
+function hash32(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return h >>> 0;
+}
+function trigramEmbed(text) {
+  const vec = new Float32Array(TRI_DIM);
+  const t = `  ${String(text || "").toLowerCase()}   `;
+  for (let i = 0; i < t.length - 2; i++) {
+    vec[hash32(t.slice(i, i + 3)) % TRI_DIM] += 1;
+  }
+  let norm = 0;
+  for (let i = 0; i < TRI_DIM; i++) norm += vec[i] * vec[i];
+  norm = Math.sqrt(norm);
+  if (norm > 0) for (let i = 0; i < TRI_DIM; i++) vec[i] /= norm;
+  return vec;
+}
+function saveTrigramVector(d, id, text) {
+  const vec = trigramEmbed(text);
+  const buf = vectorToBuffer(vec);
+  runStmt(
+    d,
+    "INSERT OR REPLACE INTO memory_vectors(memory_id,vector,model,created_at) VALUES(?,?,?,?)",
+    [id, buf, "trigram", nowIso()]
+  );
+}
+
 function vectorToBuffer(v) { return Buffer.from(v.buffer); }
 function bufferToVector(buf) { return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4); }
 
@@ -1030,17 +1059,26 @@ async function recallMemories(d, cwd, task, level, limit, mode) {
   );
   const useSemantic = plan.mode !== "keyword" && task && task.trim().length > 0;
   let taskEmbedding = null;
-  if (useSemantic && checkOllama()) {
-    taskEmbedding = await computeEmbedding(task).catch(() => null);
+  if (useSemantic) {
+    if (checkOllama()) {
+      taskEmbedding = await computeEmbedding(task).catch(() => trigramEmbed(task));
+    } else {
+      taskEmbedding = trigramEmbed(task);
+    }
   }
   const ranked = [];
   for (const row of rows) {
     let semanticScore;
     if (taskEmbedding) {
-      const vecRow = getStmt(d, "SELECT vector FROM memory_vectors WHERE memory_id = ?", [row.id]);
+      const vecRow = getStmt(d, "SELECT vector, model FROM memory_vectors WHERE memory_id = ?", [row.id]);
       if (vecRow) {
         const sv = bufferToVector(vecRow.vector);
         semanticScore = cosineSimilarity(taskEmbedding, sv);
+      } else {
+        // no stored vector — compute trigram on-the-fly
+        const text = `${row.title} ${row.body} ${row.summary || ""}`;
+        const memVec = trigramEmbed(text);
+        semanticScore = cosineSimilarity(taskEmbedding, memVec);
       }
     }
     const scores = scoreMemory(row, plan, task, cwd, level, semanticScore);
@@ -1325,7 +1363,7 @@ cm init
 4. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
 5. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
 6. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant memories at session start.
-7. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (requires Ollama).
+7. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (Ollama) or trigram fallback (zero deps).
 `;
 }
 
@@ -1449,7 +1487,7 @@ function removeMemory(d, cwd, match, kindFilter) {
   console.log(`Removed ${row.id}.`);
 }
 
-function consolidateMemories(d, cwd) {
+async function consolidateMemories(d, cwd) {
   const rows = listMemoryRows(
     d,
     "WHERE mi.status='active' AND mi.layer IN ('working','episodic')",
@@ -1472,8 +1510,20 @@ function consolidateMemories(d, cwd) {
       promoted += 1;
     }
   }
+  // Vectorize new memories — prefer Ollama when available, fallback to trigram
+  const unembedded = listUnembeddedMemories(d);
+  const useOllama = checkOllama();
+  for (const row of unembedded) {
+    const text = `${row.title} ${row.body} ${row.summary || ""}`;
+    if (useOllama) {
+      await embedText(d, row.id, null, text).catch(() => saveTrigramVector(d, row.id, text));
+    } else {
+      saveTrigramVector(d, row.id, text);
+    }
+  }
+  const vecInfo = unembedded.length ? `, ${unembedded.length} vectorized${useOllama ? " (ollama)" : ""}` : "";
   refreshProjections(d, cwd);
-  console.log(`Consolidated ${promoted} item(s).`);
+  console.log(`Consolidated ${promoted} item(s).${vecInfo}`);
 }
 
 function acquireLock(cwd) {
@@ -1495,12 +1545,17 @@ function watchLoop(d, cwd, intervalSec, cleanup) {
     if (!running) return;
     try {
       const unembedded = listUnembeddedMemories(d);
-      if (unembedded.length > 0 && checkOllama()) {
+      if (unembedded.length > 0) {
+        const useOllama = checkOllama();
         for (const row of unembedded) {
           const text = `${row.title} ${row.body} ${row.summary || ""}`;
-          embedText(d, row.id, null, text).catch(() => {});
+          if (useOllama) {
+            embedText(d, row.id, null, text).catch(() => {});
+          } else {
+            saveTrigramVector(d, row.id, text);
+          }
         }
-        console.log(`[watch] Embedded ${unembedded.length} memory item(s)`);
+        console.log(`[watch] vectorized ${unembedded.length} memory item(s)${useOllama ? " (ollama)" : " (trigram)"}`);
       }
       consolidateMemories(d, cwd);
     } catch (e) {
@@ -1588,7 +1643,7 @@ async function main() {
       process.exit(0);
     }
     if (!checkOllama()) {
-      console.log("[watch] Ollama not available. Embedding skipped.");
+      console.log("[watch] Ollama not available — will use trigram embedding.");
     }
     const cleanup = acquireLock(c);
     if (!cleanup) { console.log("[watch] Already running."); process.exit(0); }
@@ -1781,8 +1836,7 @@ async function main() {
   }
 
   if (cmd === "consolidate") {
-    consolidateMemories(d, c);
-    d.close();
+    consolidateMemories(d, c).then(() => { d.close(); });
     return;
   }
 

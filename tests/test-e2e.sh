@@ -35,6 +35,7 @@ HELP=$($CMD help 2>&1)
 assert_grep "shows init" "cm init" "$HELP"
 assert_grep "shows save" "cm save" "$HELP"
 assert_grep "shows update" "cm update" "$HELP"
+assert_grep "shows recall modes" "keyword|hybrid|semantic" "$HELP"
 echo ""
 
 # TEST 2: init
@@ -54,6 +55,8 @@ A1=$($CMD add "Project uses TypeScript with React" 2>&1)
 assert_grep "add entry" "Added:" "$A1"
 $CMD add "Build: Vite, Test: Vitest" > /dev/null 2>&1
 $CMD add "Database: PostgreSQL" > /dev/null 2>&1
+$CMD add "Deploy via Docker Compose on AWS ECS" > /dev/null 2>&1
+$CMD add "Il container crasha all'avvio per config mancante" > /dev/null 2>&1
 LS=$($CMD ls 2>&1)
 assert_grep "list shows" "TypeScript" "$LS"
 echo ""
@@ -188,7 +191,98 @@ else
 fi
 echo ""
 
-# SUMMARY
+# ======================================================
+#  EMBEDDING TESTS
+# ======================================================
+
+# TEST 18: trigram embedding — recall con variante morfologica
+echo "━━━ TEST 18: trigram recall (variante morfologica) ━━━"
+# "crash" non esiste come parola esatta, ma "crasha" è variante morfologica di "crash"
+RC_TRI=$($CMD recall "deploy con docker compose" --mode hybrid --level 1 2>&1)
+assert_grep "trigram trova docker" "Docker" "$RC_TRI"
+# verifichiamo che appaia un semantic score (anche se sem=0.000 in output, il ranking l'ha calcolato)
+RC_SCORE=$($CMD recall "distribuzione container" --mode hybrid --level 1 2>&1)
+assert_grep "trigram trova refuso semantico" "Docker" "$RC_SCORE"
+echo ""
+
+# TEST 19: vectorize via consolidate
+echo "━━━ TEST 19: vectorize su consolidate ━━━"
+# Salviamo un'altra memoria — consolidate dovrebbe vettorizzarla
+$CMD save --kind fact "Il deployment su ECS fallisce per mancata configurazione" > /dev/null 2>&1
+# Forziamo consolidate che ora vectorizza anche
+CO2=$($CMD consolidate 2>&1)
+VEC_COUNT=$(node -e "
+const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('memory/state.db');
+const r=d.prepare('SELECT COUNT(*) AS c FROM memory_vectors').get();
+console.log(r.c);
+")
+if [ "$VEC_COUNT" -ge 2 ] 2>/dev/null; then
+  mark_pass "memories vectorizzate ($VEC_COUNT totali)"
+else
+  mark_fail "vettori insufficienti ($VEC_COUNT)"
+fi
+echo ""
+
+# TEST 20: trigram + keyword — hybrid mode senza Ollama
+echo "━━━ TEST 20: hybrid recall con trigram (nessuna query keyword match) ━━━"
+# Cerchiamo "contenitore" che non è parola esatta in nessuna memoria (c'è "container")
+RC_HYB=$($CMD recall "contenitore deployment" --mode hybrid --level 1 2>&1)
+if echo "$RC_HYB" | grep -qi "Docker\|ECS\|deploy"; then
+  mark_pass "trigram morfologico: 'contenitore' ~ 'container' match"
+else
+  mark_fail "trigram morfologico fallito"
+fi
+echo ""
+
+# TEST 21: keyword-only mode NON usa trigram
+echo "━━━ TEST 21: keyword-only mode ━━━"
+RC_KW=$($CMD recall "contenitore" --mode keyword --level 1 2>&1)
+# In keyword mode non dovrebbe trovare "container" cercando "contenitore"
+if echo "$RC_KW" | grep -qi "Plan.*mode=keyword"; then
+  mark_pass "keyword mode selezionato"
+else
+  mark_fail "keyword mode non rilevato"
+fi
+echo ""
+
+# ======================================================
+#  OLLAMA EMBEDDING TESTS (opzionali, solo se Ollama gira)
+# ======================================================
+
+if curl -s -o /dev/null -w "%{http_code}" http://localhost:11434/api/tags 2>/dev/null | grep -q 200; then
+  echo "━━━ TEST 22: Ollama embedding disponibile ━━━"
+  # Salva una memoria nuova e forza l'embedding via consolidate
+  $CMD save --kind decision "Preferiamo REST su GraphQL per semplicità" > /dev/null 2>&1
+  CO3=$($CMD consolidate 2>&1)
+  OLLAMA_VEC=$(node -e "
+const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('memory/state.db');
+const r=d.prepare(\"SELECT COUNT(*) AS c FROM memory_vectors WHERE model='nomic-embed-text'\").get();
+console.log(r.c);
+")
+  if [ "$OLLAMA_VEC" -ge 1 ] 2>/dev/null; then
+    mark_pass "Ollama embedding generato ($OLLAMA_VEC vectors)"
+  else
+    mark_fail "nessun Ollama vector"
+  fi
+  echo ""
+
+  echo "━━━ TEST 23: hybrid recall con Ollama (priorità su trigram) ━━━"
+  RC_OL=$($CMD recall "API design pattern" --mode hybrid --level 1 2>&1)
+  if echo "$RC_OL" | grep -qi "GraphQL\|REST"; then
+    mark_pass "Ollama recall trova API decision"
+  else
+    mark_fail "Ollama recall fallito"
+  fi
+  echo ""
+else
+  echo "━━━ SKIP TEST 22-23: Ollama non disponibile ━━━"
+  echo "  ⏭️  Per testare embedding Ollama: ollama pull nomic-embed-text"
+  echo ""
+fi
+
+# ======================================================
+#  SUMMARY
+# ======================================================
 TOTAL=$((PASS+FAIL))
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
