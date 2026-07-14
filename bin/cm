@@ -8,10 +8,17 @@ const {
   appendFileSync,
   readdirSync,
   statSync,
+  openSync,
+  closeSync,
+  writeSync,
+  unlinkSync,
 } = require("fs");
 const { join, resolve, basename } = require("path");
-const { execSync, spawnSync } = require("child_process");
-const VERSION = "0.2.0";
+const { execSync, spawnSync, spawn } = require("child_process");
+const http = require("http");
+const VERSION = "0.3.0";
+const OLLAMA_BASE = "http://localhost:11434";
+const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
 
 let DB;
@@ -156,6 +163,96 @@ function getGitBranch(cwd) {
   }
 }
 
+function checkOllama() {
+  try {
+    const res = execSync(
+      `curl -s -o /dev/null -w "%{http_code}" ${OLLAMA_BASE}/api/tags 2>/dev/null || echo "fail"`,
+      { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, encoding: "utf-8" }
+    ).trim();
+    if (res !== "200") return false;
+    const list = execSync(
+      `curl -s ${OLLAMA_BASE}/api/tags 2>/dev/null || echo "{}"`,
+      { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, encoding: "utf-8" }
+    ).trim();
+    return list.includes(EMBED_MODEL);
+  } catch { return false; }
+}
+
+function computeEmbedding(text) {
+  return new Promise((resolve, reject) => {
+    const safeText = String(text || "").slice(0, 7000);
+    if (!safeText) { resolve(null); return; }
+    const postData = JSON.stringify({ model: EMBED_MODEL, prompt: safeText });
+    const u = new URL(`${OLLAMA_BASE}/api/embeddings`);
+    const opts = {
+      hostname: u.hostname,
+      port: u.port,
+      path: u.pathname,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(postData),
+      },
+    };
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 10000);
+    const req = http.request(opts, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        clearTimeout(timer);
+        try {
+          const json = JSON.parse(data);
+          if (json.embedding) resolve(new Float32Array(json.embedding));
+          else reject(new Error("no embedding in response"));
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on("error", (e) => { clearTimeout(timer); reject(e); });
+    req.signal = ac.signal;
+    req.write(postData);
+    req.end();
+  });
+}
+
+function cosineSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+function vectorToBuffer(v) { return Buffer.from(v.buffer); }
+function bufferToVector(buf) { return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4); }
+
+function embedText(d, id, model, text) {
+  return computeEmbedding(text).then((vec) => {
+    if (!vec) return;
+    const buf = vectorToBuffer(vec);
+    runStmt(
+      d,
+      "INSERT OR REPLACE INTO memory_vectors(memory_id,vector,model,created_at) VALUES(?,?,?,?)",
+      [id, buf, model || EMBED_MODEL, nowIso()]
+    );
+  });
+}
+
+function listUnembeddedMemories(d) {
+  return allStmt(
+    d,
+    `SELECT mi.id, mi.title, mi.body, mi.summary
+     FROM memory_items mi
+     LEFT JOIN memory_vectors mv ON mv.memory_id = mi.id
+     WHERE mi.status = 'active' AND mv.memory_id IS NULL
+     ORDER BY mi.updated_at ASC`
+  );
+}
+
 function od(p) {
   if (!DB) {
     console.log("Requires Node 22+");
@@ -218,6 +315,14 @@ function od(p) {
     );
   `);
   ensureMemorySearchTable(d);
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS memory_vectors(
+      memory_id TEXT PRIMARY KEY REFERENCES memory_items(id) ON DELETE CASCADE,
+      vector BLOB NOT NULL,
+      model TEXT NOT NULL DEFAULT '${EMBED_MODEL}',
+      created_at TEXT NOT NULL
+    );
+  `);
   return d;
 }
 
@@ -317,6 +422,22 @@ function ensureMemoryReady(c) {
     console.log("No memory/. Run: cm init");
     process.exit(1);
   }
+}
+
+function buildAutoQuery(c) {
+  const parts = [`cwd: ${c}`];
+  try {
+    const branch = getGitBranch(c);
+    if (branch) parts.push(`branch: ${branch}`);
+    const log = execSync("git log --oneline -5", {
+      cwd: c,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    if (log) parts.push(`recent: ${log}`);
+  } catch {}
+  return parts.join(" | ");
 }
 
 function sd(d, q, l) {
@@ -427,7 +548,9 @@ Memory read commands:
   cm ls-user
   cm recent [n]
   cm plan <task>
-  cm recall <task> [--level 1|2|3] [--limit n]
+  cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic]
+  cm recall-auto
+  cm watch [--interval N] [--daemon]
   cm project
   cm consolidate
 
@@ -842,7 +965,7 @@ function importLegacyMarkdown(d, cwd) {
   return count;
 }
 
-function scoreMemory(row, plan, task, cwd, level) {
+function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   const text = `${row.title} ${row.body} ${row.summary || ""}`.toLowerCase();
   const queryWords = String(task)
     .toLowerCase()
@@ -860,17 +983,30 @@ function scoreMemory(row, plan, task, cwd, level) {
   const recencyScore = Math.max(0, 1 - ageHours / (24 * 30));
   const accessScore = Math.min(1, (row.access_count || 0) / 8);
   const graphScore = countLinksForMemory(plan.db, row.id);
-  const score =
-    0.3 * keywordScore +
-    0.2 * recencyScore +
-    0.15 * accessScore +
-    0.15 * contextScore +
-    0.1 * kindPriorityScore +
-    0.1 * graphScore;
-  return {
-    score,
-    level,
-  };
+  let score;
+  const mode = plan.mode || "hybrid";
+  const hasSemantic = semanticScore !== undefined && semanticScore >= 0;
+  if (mode === "semantic" && hasSemantic) {
+    score = 0.8 * semanticScore + 0.1 * recencyScore + 0.1 * graphScore;
+  } else if (mode === "hybrid" && hasSemantic) {
+    score =
+      0.15 * keywordScore +
+      0.20 * recencyScore +
+      0.10 * accessScore +
+      0.10 * contextScore +
+      0.05 * kindPriorityScore +
+      0.10 * graphScore +
+      0.30 * semanticScore;
+  } else {
+    score =
+      0.3 * keywordScore +
+      0.2 * recencyScore +
+      0.15 * accessScore +
+      0.15 * contextScore +
+      0.1 * kindPriorityScore +
+      0.1 * graphScore;
+  }
+  return { score, level, keywordScore, recencyScore, accessScore, contextScore, kindPriorityScore, graphScore, semanticScore };
 }
 
 function countLinksForMemory(d, id) {
@@ -882,35 +1018,53 @@ function countLinksForMemory(d, id) {
   return Math.min(1, (row?.count || 0) / 5);
 }
 
-function recallMemories(d, cwd, task, level, limit) {
+async function recallMemories(d, cwd, task, level, limit, mode) {
   const plan = makePlan(task, cwd);
   plan.db = d;
+  plan.mode = mode || "hybrid";
   const rows = listMemoryRows(
     d,
     "WHERE mi.status='active'",
     [],
     "ORDER BY mi.updated_at DESC LIMIT 100"
   );
-  const ranked = rows
-    .map((row) => ({ row, ...scoreMemory(row, plan, task, cwd, level) }))
+  const useSemantic = plan.mode !== "keyword" && task && task.trim().length > 0;
+  let taskEmbedding = null;
+  if (useSemantic && checkOllama()) {
+    taskEmbedding = await computeEmbedding(task).catch(() => null);
+  }
+  const ranked = [];
+  for (const row of rows) {
+    let semanticScore;
+    if (taskEmbedding) {
+      const vecRow = getStmt(d, "SELECT vector FROM memory_vectors WHERE memory_id = ?", [row.id]);
+      if (vecRow) {
+        const sv = bufferToVector(vecRow.vector);
+        semanticScore = cosineSimilarity(taskEmbedding, sv);
+      }
+    }
+    const scores = scoreMemory(row, plan, task, cwd, level, semanticScore);
+    ranked.push({ row, ...scores });
+  }
+  const filtered = ranked
     .filter((entry) => entry.score > 0.05)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
   const timestamp = nowIso();
-  for (const entry of ranked) {
+  for (const entry of filtered) {
     runStmt(
       d,
       "UPDATE memory_items SET last_accessed_at=?, access_count=COALESCE(access_count,0)+1 WHERE id=?",
       [timestamp, entry.row.id]
     );
   }
-  return { plan, ranked };
+  return { plan, ranked: filtered };
 }
 
 function renderRecall(task, level, recalled) {
   const lines = [];
   lines.push(`Task: ${task}`);
-  lines.push(`Plan: ${recalled.plan.taskKind} / ${recalled.plan.strategy}`);
+  lines.push(`Plan: ${recalled.plan.taskKind} / ${recalled.plan.strategy} / mode=${recalled.plan.mode}`);
   lines.push(`Level: ${level}`);
   lines.push("");
   if (!recalled.ranked.length) {
@@ -919,7 +1073,8 @@ function renderRecall(task, level, recalled) {
   }
   for (const entry of recalled.ranked) {
     const row = entry.row;
-    const prefix = `[${row.id}] [${row.kind}] score=${entry.score.toFixed(2)}`;
+    const sem = entry.semanticScore !== undefined && entry.semanticScore >= 0 ? ` sem=${entry.semanticScore.toFixed(3)}` : "";
+    const prefix = `[${row.id}] [${row.kind}] score=${entry.score.toFixed(2)}${sem}`;
     if (level === 1) {
       lines.push(`${prefix} ${row.title}`);
       continue;
@@ -1133,7 +1288,7 @@ async function sc(c) {
 function setupSkillText() {
   return `---
 name: cm
-description: Persistent project memory via \`cm\` CLI. Save project facts, typed memories, retrieval plans, graph relationships, and search past conversations.
+description: Persistent project memory via \`cm\` CLI. Save project facts, typed memories, retrieval plans, graph relationships, search conversations, watch daemon, and semantic recall.
 ---
 
 # cm - Code-Mem Tool
@@ -1147,7 +1302,9 @@ cm init
 ## Core commands
 
 - \`cm save --kind decision "Use Vitest for unit tests"\`
-- \`cm recall "fix flaky tests" --level 2\`
+- \`cm recall "fix flaky tests" --level 2 --mode hybrid\`
+- \`cm recall-auto\` — auto-recall based on git context (used by SessionStart hook)
+- \`cm watch [--interval 30] [--daemon]\` — continuous embedding + consolidation daemon
 - \`cm plan "deploy preview build"\`
 - \`cm update\`
 - \`cm recent\`
@@ -1166,6 +1323,9 @@ cm init
 2. Save durable learnings with \`cm save\`.
 3. Run \`cm project\` or \`cm consolidate\` when projections feel stale.
 4. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
+5. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
+6. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant memories at session start.
+7. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (requires Ollama).
 `;
 }
 
@@ -1186,6 +1346,31 @@ async function setupHarness() {
     } catch {}
   }
   console.log(`Installed skill in ${n} harness(es)`);
+  installHooks();
+}
+
+function installHooks() {
+  const home = process.env.HOME || "";
+  const settingsPath = join(home, ".claude", "settings.json");
+  try {
+    let settings = {};
+    if (existsSync(settingsPath)) {
+      settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    }
+    if (!settings.hooks) settings.hooks = {};
+    if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
+    const cmd = "cm recall-auto";
+    if (!settings.hooks.SessionStart.some((h) => typeof h === "string" && h.startsWith("cm recall-auto"))) {
+      settings.hooks.SessionStart.push(cmd);
+      mkdirSync(join(settingsPath, ".."), { recursive: true });
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+      console.log(`Hook added: ${settingsPath} -> "SessionStart": ["${cmd}"]`);
+    } else {
+      console.log("SessionStart hook already configured.");
+    }
+  } catch (e) {
+    console.log(`Could not install hook: ${e.message}`);
+  }
 }
 
 function loadMemoryRow(d, id) {
@@ -1291,6 +1476,41 @@ function consolidateMemories(d, cwd) {
   console.log(`Consolidated ${promoted} item(s).`);
 }
 
+function acquireLock(cwd) {
+  const lockPath = mp(cwd, ".watch.lock");
+  try {
+    const fd = openSync(lockPath, "wx");
+    writeSync(fd, String(process.pid));
+    closeSync(fd);
+    return () => { try { unlinkSync(lockPath); } catch {} };
+  } catch { return null; }
+}
+
+function watchLoop(d, cwd, intervalSec, cleanup) {
+  let running = true;
+  const handler = () => { running = false; cleanup(); process.exit(0); };
+  process.on("SIGINT", handler);
+  process.on("SIGTERM", handler);
+  function tick() {
+    if (!running) return;
+    try {
+      const unembedded = listUnembeddedMemories(d);
+      if (unembedded.length > 0 && checkOllama()) {
+        for (const row of unembedded) {
+          const text = `${row.title} ${row.body} ${row.summary || ""}`;
+          embedText(d, row.id, null, text).catch(() => {});
+        }
+        console.log(`[watch] Embedded ${unembedded.length} memory item(s)`);
+      }
+      consolidateMemories(d, cwd);
+    } catch (e) {
+      console.error(`[watch] Error: ${e.message}`);
+    }
+    setTimeout(tick, intervalSec * 1000);
+  }
+  tick();
+}
+
 async function main() {
   const a = process.argv.slice(2);
   const c = process.cwd();
@@ -1354,6 +1574,46 @@ async function main() {
 
   ensureMemoryReady(c);
   const d = od(mp(c, SF));
+
+  if (cmd === "watch") {
+    const { flags } = parseArgs(a.slice(1));
+    const interval = Math.max(10, Number.parseInt(flags.interval || "30", 10));
+    if (flags.daemon) {
+      const child = spawn(process.execPath, [
+        ...(process.execArgv.includes("--experimental-sqlite") ? ["--experimental-sqlite"] : []),
+        process.argv[1], "watch", "--interval", String(interval)
+      ], { detached: true, stdio: "ignore" });
+      child.unref();
+      console.log(`Watch daemon started (pid ${child.pid}).`);
+      process.exit(0);
+    }
+    if (!checkOllama()) {
+      console.log("[watch] Ollama not available. Embedding skipped.");
+    }
+    const cleanup = acquireLock(c);
+    if (!cleanup) { console.log("[watch] Already running."); process.exit(0); }
+    console.log(`[watch] Started (interval=${interval}s). Ctrl+C to stop.`);
+    watchLoop(d, c, interval, cleanup);
+    return;
+  }
+
+  if (cmd === "recall-auto") {
+    const q = buildAutoQuery(c);
+    recallMemories(d, c, q, 1, 8, "hybrid").then((recalled) => {
+      console.log("## Contextual Memory (auto-recall)");
+      if (!recalled.ranked.length) {
+        console.log("No relevant memories from current context.");
+      }
+      for (const e of recalled.ranked) {
+        const row = e.row;
+        console.log(`- [${row.kind}] ${row.title}`);
+        console.log(`  ${row.summary || summarize(row.body)}`);
+      }
+      refreshProjections(d, c);
+      d.close();
+    });
+    return;
+  }
 
   if (cmd === "save") {
     const { flags, rest } = parseArgs(a.slice(1));
@@ -1495,15 +1755,21 @@ async function main() {
     const { flags, rest } = parseArgs(a.slice(1));
     const task = rest.join(" ").trim();
     if (!task) {
-      console.log("Usage: cm recall <task> [--level 1|2|3] [--limit n]");
+      console.log("Usage: cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic]");
       process.exit(1);
     }
     const level = Math.max(1, Math.min(3, Number.parseInt(flags.level || "2", 10) || 2));
     const limit = Math.max(1, Number.parseInt(flags.limit || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT);
-    const recalled = recallMemories(d, c, task, level, limit);
-    console.log(renderRecall(task, level, recalled));
-    refreshProjections(d, c);
-    d.close();
+    const mode = flags.mode || "hybrid";
+    if (!["keyword", "hybrid", "semantic"].includes(mode)) {
+      console.log("--mode must be: keyword, hybrid, or semantic");
+      process.exit(1);
+    }
+    recallMemories(d, c, task, level, limit, mode).then((recalled) => {
+      console.log(renderRecall(task, level, recalled));
+      refreshProjections(d, c);
+      d.close();
+    });
     return;
   }
 

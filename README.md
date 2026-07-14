@@ -546,3 +546,58 @@ No external model is required for retrieval.
 ## License
 
 MIT
+
+## Automatic Mode
+
+code-mem can run fully automatically with zero user intervention:
+
+```bash
+# One-time setup
+ollama pull nomic-embed-text   # 137MB model for embeddings
+cm setup                        # installs skill + SessionStart hook
+cm watch --daemon               # starts background daemon
+```
+
+**What happens automatically:**
+
+- `cm watch --daemon` polls every 30s for new memories without embeddings, computes them via Ollama (`nomic-embed-text`), consolidates working/episodic items, and regenerates MEMORY.md/USER.md
+- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant memories (branch, git log, cwd) into the conversation
+- During a session, the agent uses `cm save` to persist learnings, `cm touch` to mark useful items, and `cm consolidate` to promote short-term to long-term
+
+**Prerequisite:** [Ollama](https://ollama.com) with `nomic-embed-text`:
+```bash
+ollama pull nomic-embed-text
+```
+
+If Ollama is absent, all commands degrade gracefully to keyword-only mode.
+
+### Typical Workflow
+
+1. `ollama pull nomic-embed-text` — one-time download (137MB)
+2. `cm init` — initialize memory in your project
+3. `cm setup` — installs skill and SessionStart hook in `.claude/settings.json`
+4. `cm watch --daemon` — starts background daemon (embedding + consolidate + project)
+5. Work normally. code-mem remembers everything automatically.
+
+## Comparison with Other Memory Systems
+
+## Comparison with Other Memory Systems
+
+| Feature | **code-mem** | **claude-mem** | **graphify** | **Claude Code file memory** |
+|---|---|---|---|---|
+| **Storage** | SQLite (node:sqlite) — local only | Remote cloud service (MCP) | JSON graph (`graph.json`) + optional Neo4j | Markdown files (flat) |
+| **Search** | FTS5 full-text search over conversations | Semantic search via MCP API | BFS/DFS graph traversal + community detection | Manual grep only |
+| **Retrieval** | Deterministic ranking (keyword + recency + task-kind) | ML-based semantic similarity | Graph traversal (query/path/explain) | None — always loaded in context |
+| **Context cost** | ~800 tokens (MEMORY.md) + ~500 (USER.md) = fixed | Unknown — MCP calls per session | 0 tokens on load — queried on demand | Proportional to file size |
+| **CLI** | Single binary (`cm`) — no dependencies | Requires npm + MCP server | Requires Python + pip packages | None |
+| **Agent support** | Agent-agnostic (works with any coding agent) | Claude Code only | Claude Code + MCP-compatible agents | Claude Code only |
+| **Persistence** | Per-project SQLite with typed layers (fact, decision, procedure, user) | Cross-project cloud persistence | Per-run or incremental — no persistent "memory" layer | Per-file markdown |
+| **Graph** | Lightweight JSON graph (`graph.json`) with nodes/edges | None | Full-featured: community detection, AST + semantic extraction, hub analysis | None |
+| **Install** | `curl` one-liner | `npm install -g claude-mem` + MCP config | `pip install graphifyy` | Built into Claude Code |
+| **License** | MIT | Apache-2.0 | MIT | Proprietary (Anthropic) |
+| **Dependencies** | Zero | Node.js + MCP plugin system | Python (networkx, community detection, NLP) | None |
+| **Ideal for** | Any project needing persistent, lightweight agent memory | Claude Code users wanting cross-session cloud memory | Codebase exploration, architecture mapping, research corpora | Simple, always-in-context agent notes |
+
+### Summary
+
+**code-mem** is the only system that combines zero dependencies, agent-agnostic support, typed memory layers, and local-only storage in a single CLI binary. It trades semantic search and cloud sync for simplicity, determinism, and portability — making it the best fit for teams that want persistent project memory without external services or vendor lock-in.
