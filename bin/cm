@@ -18,10 +18,11 @@ const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const readline = require("readline");
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
+const REPO_API_COMMIT = "https://api.github.com/repos/alessiobacin/code-mem/commits/main";
 
 let DB;
 try {
@@ -689,6 +690,16 @@ function downloadText(url) {
   }
 }
 
+function resolveRemoteCommitSha() {
+  try {
+    const response = downloadText(REPO_API_COMMIT);
+    const parsed = JSON.parse(response);
+    return typeof parsed?.sha === "string" ? parsed.sha : null;
+  } catch {
+    return null;
+  }
+}
+
 function extractRemoteVersion(source) {
   const match = String(source).match(/const VERSION = "([^"]+)";/);
   return match ? match[1] : null;
@@ -704,7 +715,11 @@ function getInstalledSkillDirs() {
 }
 
 function runUpdate(force) {
-  const remoteBin = downloadText(`${REPO_RAW_BASE}/bin/cm`);
+  const remoteSha = resolveRemoteCommitSha();
+  const remoteBase = remoteSha
+    ? `https://raw.githubusercontent.com/alessiobacin/code-mem/${remoteSha}`
+    : REPO_RAW_BASE;
+  const remoteBin = downloadText(`${remoteBase}/bin/cm`);
   const remoteVersion = extractRemoteVersion(remoteBin);
   if (!remoteVersion) {
     console.log("Could not determine remote version.");
@@ -730,7 +745,7 @@ function runUpdate(force) {
     execSync(`chmod +x "${targetPath.replace(/"/g, '\\"')}"`, { stdio: "ignore" });
   } catch {}
 
-  const remoteSkill = downloadText(`${REPO_RAW_BASE}/skill/SKILL.md`);
+  const remoteSkill = downloadText(`${remoteBase}/skill/SKILL.md`);
   for (const dir of getInstalledSkillDirs()) {
     try {
       mkdirSync(dir, { recursive: true });
