@@ -18,7 +18,7 @@ const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const readline = require("readline");
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -710,12 +710,21 @@ function runUpdate(force) {
     console.log("Could not determine remote version.");
     process.exit(1);
   }
+  const targetPath = process.argv[1];
+  let localSource = "";
+  try {
+    localSource = readFileSync(targetPath, "utf-8");
+  } catch {}
   const cmp = compareVersions(remoteVersion, VERSION);
-  if (cmp <= 0 && !force) {
+  const sameContent = localSource === remoteBin;
+  if (cmp < 0 && !force) {
+    console.log(`Local cm (${VERSION}) is newer than remote (${remoteVersion}).`);
+    return;
+  }
+  if (cmp === 0 && sameContent && !force) {
     console.log(`Already up to date (${VERSION}).`);
     return;
   }
-  const targetPath = process.argv[1];
   writeFileSync(targetPath, remoteBin, "utf-8");
   try {
     execSync(`chmod +x "${targetPath.replace(/"/g, '\\"')}"`, { stdio: "ignore" });
@@ -727,6 +736,10 @@ function runUpdate(force) {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "SKILL.md"), remoteSkill, "utf-8");
     } catch {}
+  }
+  if (cmp === 0 && !sameContent) {
+    console.log(`Reinstalled cm ${remoteVersion} to refresh mismatched local contents.`);
+    return;
   }
   console.log(`Updated cm from ${VERSION} to ${remoteVersion}.`);
 }

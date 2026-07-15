@@ -158,7 +158,7 @@ cm update --force
 
 Notes:
 
-- `cm update` compares the local CLI version with the remote `main` branch version.
+- `cm update` compares both the local CLI version and the installed file contents with the remote `main` branch version.
 - `--force` reinstalls even if the versions match.
 - The command updates the current executable path and rewrites harness skill files when possible.
 
