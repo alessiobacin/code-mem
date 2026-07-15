@@ -13,10 +13,10 @@ const {
   writeSync,
   unlinkSync,
 } = require("fs");
-const { join, resolve, basename } = require("path");
+const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -47,6 +47,7 @@ const MF = "MEMORY.md";
 const UF = "USER.md";
 const GF = "graph.json";
 const SF = "state.db";
+const CM_DIR = ".cm";
 const ES = "\n§\n";
 const DEFAULT_CONFIDENCE = 0.7;
 const DEFAULT_SALIENCE = 0.5;
@@ -92,6 +93,34 @@ function mp(c, f) {
   return join(c, "memory", f);
 }
 
+function homeDir() {
+  return process.env.HOME || process.env.USERPROFILE || "";
+}
+
+function globalRoot() {
+  return join(homeDir(), CM_DIR);
+}
+
+function globalDbPath() {
+  return join(globalRoot(), SF);
+}
+
+function timestampSlug() {
+  return nowIso().replace(/[:.]/g, "-");
+}
+
+function projectMemorySnapshotPath(cwd, stamp) {
+  return join(cwd, "cm", "memories", stamp, "project-memory.md");
+}
+
+function globalMemorySnapshotPath(stamp) {
+  return join(globalRoot(), "memories", stamp, "global-memory.md");
+}
+
+function globalBackupFilePath(cwd, stamp) {
+  return join(cwd, `cm-global-backup-${stamp}.json`);
+}
+
 function rd(p) {
   try {
     return readFileSync(p, "utf-8");
@@ -101,7 +130,7 @@ function rd(p) {
 }
 
 function wr(p, c) {
-  mkdirSync(join(p, ".."), { recursive: true });
+  mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, c, "utf-8");
 }
 
@@ -122,7 +151,7 @@ function rg(p) {
 }
 
 function wg(p, d) {
-  mkdirSync(join(p, ".."), { recursive: true });
+  mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(d, null, 2), "utf-8");
 }
 
@@ -287,6 +316,7 @@ function od(p) {
     console.log("Requires Node 22+");
     process.exit(1);
   }
+  mkdirSync(dirname(p), { recursive: true });
   const d = new DB(p);
   d.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL");
   d.exec(`
@@ -497,11 +527,9 @@ function sd(d, q, l) {
 function eg(c) {
   const p = join(c, ".gitignore");
   const e = "\n# Project memory\nmemory/\n";
-  try {
-    const x = rd(p);
-    if (!x.includes("\nmemory/")) appendFileSync(p, e, "utf-8");
-  } catch {
-    wr(p, e);
+  const x = rd(p);
+  if (!x.includes("memory/")) {
+    appendFileSync(p, e, "utf-8");
   }
 }
 
@@ -563,7 +591,7 @@ Usage:
   cm help
 
 Memory write commands:
-  cm save [--kind k] [--layer l] [--title t] [--summary s] [--confidence n] [--tag tag] [--file path] <text>
+  cm save [--kind k] [--layer l] [--title t] [--summary s] [--confidence n] [--tag tag] [--file path] [--global] <text>
   cm add <text>
   cm add-user <text>
   cm replace <match> <new text>
@@ -571,6 +599,8 @@ Memory write commands:
   cm archive <id>
   cm touch <id>
   cm link <source> <target> <relation> [weight]
+  cm backup [--global]
+  cm restore --global [file]
 
 Memory read commands:
   cm ls
@@ -596,6 +626,8 @@ Search:
 
 Examples:
   cm save --kind decision --title "Use Vitest" "Vitest is the default test runner"
+  cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"
+  cm backup --global
   cm recall "fix flaky tests" --level 2
   cm plan "deploy preview build"
   cm project`;
@@ -676,10 +708,15 @@ function runUpdate(force) {
 function parseArgs(parts) {
   const flags = {};
   const rest = [];
+  const booleanFlags = new Set(["force", "daemon", "global"]);
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
     if (part.startsWith("--")) {
       const key = part.slice(2);
+      if (booleanFlags.has(key)) {
+        flags[key] = true;
+        continue;
+      }
       const next = parts[i + 1];
       if (!next || next.startsWith("--")) {
         flags[key] = true;
@@ -875,6 +912,40 @@ function saveMemory(d, cwd, input) {
   return row;
 }
 
+function saveMemoryToStore(d, cwd, input) {
+  const body = String(input.body || "").trim();
+  if (!body) {
+    console.log("text required");
+    process.exit(1);
+  }
+  const title = String(input.title || projectTitle(body)).trim();
+  return upsertMemoryItem(d, {
+    kind: input.kind || "fact",
+    layer: input.layer || "semantic",
+    title,
+    body,
+    summary: input.summary || summarize(body),
+    confidence: clamp01(input.confidence, DEFAULT_CONFIDENCE),
+    salience: clamp01(input.salience, DEFAULT_SALIENCE),
+    source: input.source || "manual",
+    cwd,
+    gitBranch: input.gitBranch || getGitBranch(cwd),
+    agent: input.agent || inferAgent(),
+    taskKind: input.taskKind || "",
+    files: input.files || [],
+    tags: input.tags || [],
+    sessionId: input.sessionId || "",
+    status: input.status || "active",
+    createdAt: input.createdAt,
+    lastAccessedAt: input.lastAccessedAt,
+    accessCount: input.accessCount,
+    validFrom: input.validFrom,
+    validTo: input.validTo,
+    supersedesId: input.supersedesId,
+    hash: input.hash,
+  });
+}
+
 function inferAgent() {
   if (process.env.CODEX) return "codex";
   if (process.env.CLAUDECODE || process.env.CLAUDE) return "claude";
@@ -886,6 +957,35 @@ function summarize(text) {
   const cleaned = String(text || "").replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
   return cleaned.length > 140 ? `${cleaned.slice(0, 137)}...` : cleaned;
+}
+
+function renderMemoryEntry(row) {
+  const lines = [
+    `- id: ${row.id}`,
+    `  kind: ${row.kind}`,
+    `  layer: ${row.layer}`,
+    `  title: ${row.title}`,
+    `  summary: ${row.summary || summarize(row.body)}`,
+    `  body: ${row.body}`,
+  ];
+  const tags = tagsForRow(row);
+  if (tags.length) lines.push(`  tags: ${tags.join(", ")}`);
+  if (row.git_branch) lines.push(`  branch: ${row.git_branch}`);
+  if (row.cwd) lines.push(`  cwd: ${row.cwd}`);
+  return lines.join("\n");
+}
+
+function renderMemorySnapshot(title, rows) {
+  const lines = [`# ${title}`, "", `Exported: ${nowIso()}`, ""];
+  if (!rows.length) {
+    lines.push("_No memories._");
+    return lines.join("\n") + "\n";
+  }
+  for (const row of rows) {
+    lines.push(renderMemoryEntry(row));
+    lines.push("");
+  }
+  return lines.join("\n");
 }
 
 function updateFtsRow(d, row) {
@@ -994,6 +1094,100 @@ function importLegacyMarkdown(d, cwd) {
   return count;
 }
 
+function backupProjectMemories(d, cwd) {
+  const stamp = timestampSlug();
+  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at DESC");
+  const out = projectMemorySnapshotPath(cwd, stamp);
+  wr(out, renderMemorySnapshot("Project Memory Backup", rows));
+  return out;
+}
+
+function serializeMemoryRow(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    layer: row.layer,
+    title: row.title,
+    body: row.body,
+    summary: row.summary || "",
+    confidence: row.confidence,
+    salience: row.salience,
+    source: row.source,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastAccessedAt: row.last_accessed_at,
+    accessCount: row.access_count,
+    validFrom: row.valid_from,
+    validTo: row.valid_to,
+    supersedesId: row.supersedes_id,
+    hash: row.hash,
+    cwd: row.cwd || "",
+    gitBranch: row.git_branch || "",
+    agent: row.agent || "",
+    taskKind: row.task_kind || "",
+    files: filesForRow(row),
+    tags: tagsForRow(row),
+    sessionId: row.session_id || "",
+  };
+}
+
+function backupGlobalMemories(d, cwd) {
+  const stamp = timestampSlug();
+  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at DESC");
+  const out = globalBackupFilePath(cwd, stamp);
+  wr(
+    out,
+    JSON.stringify(
+      {
+        version: VERSION,
+        scope: "global",
+        exportedAt: nowIso(),
+        items: rows.map(serializeMemoryRow),
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  return out;
+}
+
+function resolveRestorePath(cwd, maybePath) {
+  if (maybePath) return resolve(cwd, maybePath);
+  const entries = readdirSync(cwd)
+    .filter((name) => /^cm-global-backup-.*\.json$/.test(name))
+    .sort()
+    .reverse();
+  if (!entries.length) {
+    console.log("No global backup file found in current directory.");
+    process.exit(1);
+  }
+  return join(cwd, entries[0]);
+}
+
+function restoreGlobalMemories(d, cwd, filePath) {
+  const resolved = resolveRestorePath(cwd, filePath);
+  const payload = safeJsonParse(rd(resolved), null);
+  if (!payload || payload.scope !== "global" || !Array.isArray(payload.items)) {
+    console.log("Invalid global backup file.");
+    process.exit(1);
+  }
+  let imported = 0;
+  for (const item of payload.items) {
+    const result = saveMemoryToStore(d, item.cwd || cwd, item);
+    if (result.created) imported += 1;
+  }
+  return { resolved, imported, total: payload.items.length };
+}
+
+function saveGlobalSnapshot(d, id) {
+  const stamp = timestampSlug();
+  const stored = loadMemoryRow(d, id);
+  const out = globalMemorySnapshotPath(stamp);
+  wr(out, renderMemorySnapshot("Global Memory", stored ? [stored] : []));
+  return out;
+}
+
 function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   const text = `${row.title} ${row.body} ${row.summary || ""}`.toLowerCase();
   const queryWords = String(task)
@@ -1011,7 +1205,8 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   const ageHours = row.updated_at ? Math.max(1, (Date.now() - Date.parse(row.updated_at)) / 3600000) : 999;
   const recencyScore = Math.max(0, 1 - ageHours / (24 * 30));
   const accessScore = Math.min(1, (row.access_count || 0) / 8);
-  const graphScore = countLinksForMemory(plan.db, row.id);
+  const graphDb = plan.dbByScope?.[row._scope || "project"] || plan.db;
+  const graphScore = countLinksForMemory(graphDb, row.id);
   let score;
   const mode = plan.mode || "hybrid";
   const hasSemantic = semanticScore !== undefined && semanticScore >= 0;
@@ -1049,14 +1244,23 @@ function countLinksForMemory(d, id) {
 
 async function recallMemories(d, cwd, task, level, limit, mode) {
   const plan = makePlan(task, cwd);
+  const globalDb = od(globalDbPath());
   plan.db = d;
+  plan.dbByScope = { project: d, global: globalDb };
   plan.mode = mode || "hybrid";
-  const rows = listMemoryRows(
+  const projectRows = listMemoryRows(
     d,
     "WHERE mi.status='active'",
     [],
     "ORDER BY mi.updated_at DESC LIMIT 100"
   );
+  const globalRows = listMemoryRows(
+    globalDb,
+    "WHERE mi.status='active'",
+    [],
+    "ORDER BY mi.updated_at DESC LIMIT 100"
+  ).map((row) => ({ ...row, _scope: "global" }));
+  const rows = projectRows.map((row) => ({ ...row, _scope: "project" })).concat(globalRows);
   const useSemantic = plan.mode !== "keyword" && task && task.trim().length > 0;
   let taskEmbedding = null;
   if (useSemantic) {
@@ -1070,7 +1274,8 @@ async function recallMemories(d, cwd, task, level, limit, mode) {
   for (const row of rows) {
     let semanticScore;
     if (taskEmbedding) {
-      const vecRow = getStmt(d, "SELECT vector, model FROM memory_vectors WHERE memory_id = ?", [row.id]);
+      const storeDb = plan.dbByScope[row._scope || "project"] || d;
+      const vecRow = getStmt(storeDb, "SELECT vector, model FROM memory_vectors WHERE memory_id = ?", [row.id]);
       if (vecRow) {
         const sv = bufferToVector(vecRow.vector);
         semanticScore = cosineSimilarity(taskEmbedding, sv);
@@ -1090,12 +1295,14 @@ async function recallMemories(d, cwd, task, level, limit, mode) {
     .slice(0, limit);
   const timestamp = nowIso();
   for (const entry of filtered) {
+    const storeDb = plan.dbByScope[entry.row._scope || "project"] || d;
     runStmt(
-      d,
+      storeDb,
       "UPDATE memory_items SET last_accessed_at=?, access_count=COALESCE(access_count,0)+1 WHERE id=?",
       [timestamp, entry.row.id]
     );
   }
+  globalDb.close();
   return { plan, ranked: filtered };
 }
 
@@ -1112,7 +1319,8 @@ function renderRecall(task, level, recalled) {
   for (const entry of recalled.ranked) {
     const row = entry.row;
     const sem = entry.semanticScore !== undefined && entry.semanticScore >= 0 ? ` sem=${entry.semanticScore.toFixed(3)}` : "";
-    const prefix = `[${row.id}] [${row.kind}] score=${entry.score.toFixed(2)}${sem}`;
+    const scope = row._scope === "global" ? "global" : "project";
+    const prefix = `[${row.id}] [${row.kind}] [${scope}] score=${entry.score.toFixed(2)}${sem}`;
     if (level === 1) {
       lines.push(`${prefix} ${row.title}`);
       continue;
@@ -1326,7 +1534,7 @@ async function sc(c) {
 function setupSkillText() {
   return `---
 name: cm
-description: Persistent project memory via \`cm\` CLI. Save project facts, typed memories, retrieval plans, graph relationships, search conversations, watch daemon, and semantic recall.
+description: Persistent project memory via \`cm\` CLI, with optional global memory. Save project facts, typed memories, retrieval plans, graph relationships, search conversations, watch daemon, and semantic recall.
 ---
 
 # cm - Code-Mem Tool
@@ -1340,10 +1548,14 @@ cm init
 ## Core commands
 
 - \`cm save --kind decision "Use Vitest for unit tests"\`
+- \`cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"\`
 - \`cm recall "fix flaky tests" --level 2 --mode hybrid\`
 - \`cm recall-auto\` — auto-recall based on git context (used by SessionStart hook)
 - \`cm watch [--interval 30] [--daemon]\` — continuous embedding + consolidation daemon
 - \`cm plan "deploy preview build"\`
+- \`cm backup\` — save project memories to \`./cm/memories/<timestamp>/project-memory.md\`
+- \`cm backup --global\` — export global memories to a backup file in the current directory
+- \`cm restore --global [file]\` — merge a global backup into \`~/.cm/state.db\`
 - \`cm update\`
 - \`cm recent\`
 - \`cm consolidate\`
@@ -1359,16 +1571,18 @@ cm init
 
 1. Use \`cm recall\` before grep when you need project memory.
 2. Save durable learnings with \`cm save\`.
-3. Run \`cm project\` or \`cm consolidate\` when projections feel stale.
-4. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
-5. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
-6. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant memories at session start.
-7. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (Ollama) or trigram fallback (zero deps).
+3. When a learning should be available in every project, save it with \`cm save --global\`.
+4. Run \`cm project\` or \`cm consolidate\` when projections feel stale.
+5. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
+6. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
+7. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant project and global memories at session start.
+8. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (Ollama) or trigram fallback (zero deps).
 `;
 }
 
 async function setupHarness() {
   const sk = setupSkillText();
+  const cwd = process.cwd();
   const dirs = [
     join(process.env.HOME || "", ".pi", "agent", "skills", "cm"),
     join(process.env.HOME || "", ".claude", "skills", "cm"),
@@ -1384,12 +1598,12 @@ async function setupHarness() {
     } catch {}
   }
   console.log(`Installed skill in ${n} harness(es)`);
-  installHooks();
+  installHooks(cwd);
 }
 
-function installHooks() {
-  const home = process.env.HOME || "";
-  const settingsPath = join(home, ".claude", "settings.json");
+function installHooks(cwd) {
+  const dir = join(cwd, ".claude");
+  const settingsPath = join(dir, "settings.json");
   try {
     let settings = {};
     if (existsSync(settingsPath)) {
@@ -1397,12 +1611,23 @@ function installHooks() {
     }
     if (!settings.hooks) settings.hooks = {};
     if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-    const cmd = "cm recall-auto";
-    if (!settings.hooks.SessionStart.some((h) => typeof h === "string" && h.startsWith("cm recall-auto"))) {
-      settings.hooks.SessionStart.push(cmd);
-      mkdirSync(join(settingsPath, ".."), { recursive: true });
+    const hookEntry = {
+      matcher: "",
+      hooks: [
+        {
+          type: "command",
+          command: "if [ -d memory ]; then cm recall-auto; fi",
+        },
+      ],
+    };
+    const exists = settings.hooks.SessionStart.some(
+      (h) => typeof h === "object" && h.matcher === "" && h.hooks?.some((hh) => hh.command?.includes("cm recall-auto"))
+    );
+    if (!exists) {
+      settings.hooks.SessionStart.push(hookEntry);
+      mkdirSync(dir, { recursive: true });
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-      console.log(`Hook added: ${settingsPath} -> "SessionStart": ["${cmd}"]`);
+      console.log(`Hook added: ${settingsPath} -> SessionStart: cm recall-auto`);
     } else {
       console.log("SessionStart hook already configured.");
     }
@@ -1574,6 +1799,7 @@ async function main() {
     return;
   }
   const cmd = a[0];
+  const { flags: earlyFlags } = parseArgs(a.slice(1));
 
   if (cmd === "setup") {
     await setupHarness();
@@ -1621,14 +1847,20 @@ async function main() {
     }
     refreshProjections(nd, c);
     nd.close();
+    installHooks(c);
     console.log(
       `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}`
     );
     return;
   }
 
-  ensureMemoryReady(c);
-  const d = od(mp(c, SF));
+  const needsProjectMemory = !(
+    (cmd === "save" && earlyFlags.global) ||
+    (cmd === "backup" && earlyFlags.global) ||
+    (cmd === "restore" && earlyFlags.global)
+  );
+  if (needsProjectMemory) ensureMemoryReady(c);
+  const d = needsProjectMemory ? od(mp(c, SF)) : null;
 
   if (cmd === "watch") {
     const { flags } = parseArgs(a.slice(1));
@@ -1661,7 +1893,7 @@ async function main() {
       }
       for (const e of recalled.ranked) {
         const row = e.row;
-        console.log(`- [${row.kind}] ${row.title}`);
+        console.log(`- [${row.kind}] [${row._scope === "global" ? "global" : "project"}] ${row.title}`);
         console.log(`  ${row.summary || summarize(row.body)}`);
       }
       refreshProjections(d, c);
@@ -1673,7 +1905,7 @@ async function main() {
   if (cmd === "save") {
     const { flags, rest } = parseArgs(a.slice(1));
     const text = rest.join(" ").trim();
-    const result = saveMemory(d, c, {
+    const payload = {
       body: text,
       kind: flags.kind || "fact",
       layer: flags.layer || (flags.kind === "preference" ? "user" : "semantic"),
@@ -1684,9 +1916,46 @@ async function main() {
       tags: flags.tag ? String(flags.tag).split(",").map((t) => t.trim()).filter(Boolean) : [],
       files: flags.file ? String(flags.file).split(",").map((t) => t.trim()).filter(Boolean) : [],
       source: "manual",
-    });
-    console.log(`${result.created ? "Saved" : "Already exists"}: ${result.id}`);
-    d.close();
+    };
+    if (flags.global) {
+      const gd = od(globalDbPath());
+      const result = saveMemoryToStore(gd, c, payload);
+      const snapshot = saveGlobalSnapshot(gd, result.id);
+      console.log(`${result.created ? "Saved" : "Already exists"} globally: ${result.id} (${snapshot})`);
+      gd.close();
+    } else {
+      const result = saveMemory(d, c, payload);
+      console.log(`${result.created ? "Saved" : "Already exists"}: ${result.id}`);
+      d.close();
+    }
+    return;
+  }
+
+  if (cmd === "backup") {
+    const { flags } = parseArgs(a.slice(1));
+    if (flags.global) {
+      const gd = od(globalDbPath());
+      const out = backupGlobalMemories(gd, c);
+      gd.close();
+      console.log(`Global backup written to ${out}`);
+    } else {
+      const out = backupProjectMemories(d, c);
+      console.log(`Project backup written to ${out}`);
+      d.close();
+    }
+    return;
+  }
+
+  if (cmd === "restore") {
+    const { flags, rest } = parseArgs(a.slice(1));
+    if (!flags.global) {
+      console.log("Usage: cm restore --global [file]");
+      process.exit(1);
+    }
+    const gd = od(globalDbPath());
+    const result = restoreGlobalMemories(gd, c, rest[0]);
+    gd.close();
+    console.log(`Restored ${result.imported}/${result.total} global memories from ${result.resolved}`);
     return;
   }
 

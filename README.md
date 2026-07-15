@@ -1,13 +1,14 @@
 # code-mem
 
-Persistent project memory for coding agents and developers.
+Persistent project memory for coding agents and developers, with optional global memory for reusable cross-project knowledge.
 
-`code-mem` keeps a local memory layer inside each repo:
+`code-mem` keeps a local memory layer inside each repo, plus an optional local global store:
 
 - typed memories in SQLite
 - generated `MEMORY.md` and `USER.md` projections
 - a lightweight JSON graph
 - FTS5 search over stored conversation logs
+- optional global memory in `~/.cm/state.db`
 
 It is designed to stay simple:
 
@@ -175,7 +176,7 @@ Usage:
 
 ```bash
 cm save [--kind KIND] [--layer LAYER] [--title TITLE] [--summary TEXT] \
-  [--confidence 0.0-1.0] [--tag tag1,tag2] [--file path1,path2] <text>
+  [--confidence 0.0-1.0] [--tag tag1,tag2] [--file path1,path2] [--global] <text>
 ```
 
 Supported kinds:
@@ -203,9 +204,17 @@ cm save --kind procedure --layer procedural \
   --title "Reset local DB" \
   --file scripts/reset-db.sh \
   "Run scripts/reset-db.sh and reseed test fixtures."
+cm save --kind procedure --global \
+  "Metodo di deploy classico: chiedi conferma e poi usa Docker sul server indicato nel file .env."
 cm save --kind preference --layer user \
   "Prefer patches over full rewrites."
 ```
+
+Notes:
+
+- `--global` saves the memory into the cross-project store at `~/.cm/state.db`.
+- Every `cm save --global ...` also writes a dated markdown snapshot to `~/.cm/memories/<timestamp>/global-memory.md`.
+- `cm recall` and `cm recall-auto` search both project memory and global memory automatically.
 
 ### `cm add`
 
@@ -382,6 +391,42 @@ cm recall "deploy staging release" --level 1
 cm recall "write onboarding docs" --level 3 --limit 5
 ```
 
+Notes:
+
+- Project and global memories are ranked together.
+- Global results are labeled as `[global]` in the output.
+
+### `cm backup`
+
+Create a filesystem backup of stored memories.
+
+Usage:
+
+```bash
+cm backup
+cm backup --global
+```
+
+Behavior:
+
+- `cm backup` writes the current project's active memories to `./cm/memories/<timestamp>/project-memory.md`
+- `cm backup --global` writes the global memory store to `./cm-global-backup-<timestamp>.json`
+
+### `cm restore`
+
+Restore a global backup onto another machine or profile.
+
+Usage:
+
+```bash
+cm restore --global [file]
+```
+
+Behavior:
+
+- merges the backup into `~/.cm/state.db`
+- if `file` is omitted, the latest `cm-global-backup-*.json` file in the current directory is used
+
 ### `cm project`
 
 Regenerate `MEMORY.md` and `USER.md` from `state.db`.
@@ -534,10 +579,11 @@ No external model is required for retrieval. If Ollama is present, it is preferr
 
 1. Run `cm init` once per repo.
 2. Save durable learnings with `cm save`.
-3. Use `cm recall "<task>"` before starting substantial work.
-4. Use `cm touch <id>` on especially useful memories.
-5. Run `cm consolidate` after a debugging or implementation session.
-6. Let agents read `MEMORY.md` and `USER.md` as compact projections.
+3. When a learning should apply in every repo, save it with `cm save --global`.
+4. Use `cm recall "<task>"` before starting substantial work.
+5. Use `cm touch <id>` on especially useful memories.
+6. Run `cm consolidate` after a debugging or implementation session.
+7. Let agents read `MEMORY.md` and `USER.md` as compact projections.
 
 ## Notes
 
@@ -563,7 +609,7 @@ cm watch --daemon               # starts background daemon
 **What happens automatically:**
 
 - `cm watch --daemon` polls every 30s for new memories without embeddings, computes them via Ollama (`nomic-embed-text`), consolidates working/episodic items, and regenerates MEMORY.md/USER.md
-- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant memories (branch, git log, cwd) into the conversation
+- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant project and global memories based on branch, git log, and cwd
 - During a session, the agent uses `cm save` to persist learnings, `cm touch` to mark useful items, and `cm consolidate` to promote short-term to long-term
 
 **Prerequisite:** [Ollama](https://ollama.com) with `nomic-embed-text`:
@@ -577,7 +623,7 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 
 1. `ollama pull nomic-embed-text` — one-time download (137MB)
 2. `cm init` — initialize memory in your project
-3. `cm setup` — installs skill and SessionStart hook in `.claude/settings.json`
+3. `cm setup` — installs skill and SessionStart hook in the project's `.claude/settings.json`
 4. `cm watch --daemon` — starts background daemon (embedding + consolidate + project)
 5. Work normally. code-mem remembers everything automatically.
 
@@ -591,7 +637,7 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 | **Context cost** | ~800 tokens (MEMORY.md) + ~500 (USER.md) = fixed | Unknown — MCP calls per session | 0 tokens on load — queried on demand | Proportional to file size |
 | **CLI** | Single binary (`cm`) — no dependencies | Requires npm + MCP server | Requires Python + pip packages | None |
 | **Agent support** | Agent-agnostic (works with any coding agent) | Claude Code only | Claude Code + MCP-compatible agents | Claude Code only |
-| **Persistence** | Per-project SQLite with typed layers (fact, decision, procedure, user) | Cross-project cloud persistence | Per-run or incremental — no persistent "memory" layer | Per-file markdown |
+| **Persistence** | Per-project SQLite + optional local global SQLite with typed layers | Cross-project cloud persistence | Per-run or incremental — no persistent "memory" layer | Per-file markdown |
 | **Graph** | Lightweight JSON graph (`graph.json`) with nodes/edges | None | Full-featured: community detection, AST + semantic extraction, hub analysis | None |
 | **Install** | `curl` one-liner | `npm install -g claude-mem` + MCP config | `pip install graphifyy` | Built into Claude Code |
 | **License** | MIT | Apache-2.0 | MIT | Proprietary (Anthropic) |
@@ -600,12 +646,11 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 
 ### Summary
 
-### code-mem is the only system that combines zero dependencies, agent-agnostic support, typed memory layers, and local-only storage in a single CLI binary. It trades semantic search and cloud sync for simplicity, determinism, and portability — making it the best fit for teams that want persistent project memory without external services or vendor lock-in.
+### code-mem is the only system that combines zero dependencies, agent-agnostic support, typed memory layers, and local-first storage in a single CLI binary. It trades hosted sync and organization-level sharing for simplicity, determinism, privacy, and portability — making it the best fit for teams and individuals who want persistent memory without external services or vendor lock-in.
 
-### Approfondimenti
+### Further Reading
 
-Per una trattazione più estesa, vedi:
-
-- **[docs/FILOSOFIA.md](docs/FILOSOFIA.md)** — la filosofia alla base del progetto: local-first, tipi e strati, ranking deterministico, zero dipendenze, perché la semplicità vince
-- **[docs/COMPARAZIONE.md](docs/COMPARAZIONE.md)** — comparazione dettagliata con claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, e Letta (MemGPT), con vantaggi, svantaggi, e scenari d'uso per ciascuno
-- **[docs/TEST-COMPARATIVI.md](docs/TEST-COMPARATIVI.md)** — test pratici fianco a fianco: esegui code-mem e un altro sistema in due terminali e vedi la differenza reale nel ritrovare decisioni, workaround, e informazioni cross-sessione
+- **[docs/PHILOSOPHY.md](docs/PHILOSOPHY.md)** — design philosophy: local-first, kinds & layers, deterministic recall, zero dependencies, why simplicity wins
+- **[docs/COMPARISON.md](docs/COMPARISON.md)** — detailed comparison with claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, and Letta (MemGPT)
+- **(IT) [docs/FILOSOFIA.md](docs/FILOSOFIA.md)** — versione italiana della filosofia
+- **(IT) [docs/COMPARAZIONE.md](docs/COMPARAZIONE.md)** — versione italiana della comparazione

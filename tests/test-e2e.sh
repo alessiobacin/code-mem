@@ -12,6 +12,8 @@ FAIL=0
 TESTDIR=/tmp/cm-e2e-$$
 rm -rf "$TESTDIR"
 mkdir -p "$TESTDIR/src"
+export HOME="$TESTDIR/home"
+mkdir -p "$HOME"
 cd "$TESTDIR"
 
 echo '{"name":"e2e-test","dependencies":{"typescript":"^5","react":"^18"}}' > package.json
@@ -191,12 +193,62 @@ else
 fi
 echo ""
 
+# TEST 18: global save + recall + snapshot
+echo "━━━ TEST 18: global save + recall ━━━"
+GSAVE=$($CMD save --kind procedure --global "Deploy classico: chiedi conferma e usa Docker sul server del file .env" 2>&1)
+assert_grep "global save" "Saved globally" "$GSAVE"
+GLOBAL_MD_COUNT=$(find "$HOME/.cm/memories" -name global-memory.md 2>/dev/null | wc -l | tr -d ' ')
+if [ "${GLOBAL_MD_COUNT:-0}" -ge 1 ] 2>/dev/null; then
+  mark_pass "global snapshot scritto"
+else
+  mark_fail "global snapshot mancante"
+fi
+mkdir -p "$TESTDIR/other-project"
+cd "$TESTDIR/other-project"
+$CMD init > /dev/null 2>&1
+GREC=$($CMD recall "deploy classico docker env" --level 1 2>&1)
+assert_grep "global recall" "\\[global\\]" "$GREC"
+assert_grep "global recall text" "Docker" "$GREC"
+cd "$TESTDIR"
+echo ""
+
+# TEST 19: project backup
+echo "━━━ TEST 19: project backup ━━━"
+PBACK=$($CMD backup 2>&1)
+assert_grep "project backup command" "Project backup written" "$PBACK"
+PROJECT_BACKUPS=$(find "$TESTDIR/cm/memories" -name project-memory.md 2>/dev/null | wc -l | tr -d ' ')
+if [ "${PROJECT_BACKUPS:-0}" -ge 1 ] 2>/dev/null; then
+  mark_pass "project backup file"
+else
+  mark_fail "project backup file missing"
+fi
+echo ""
+
+# TEST 20: global backup + restore
+echo "━━━ TEST 20: global backup + restore ━━━"
+GBACK=$($CMD backup --global 2>&1)
+assert_grep "global backup command" "Global backup written" "$GBACK"
+GLOBAL_BACKUP_FILE=$(find "$TESTDIR" -maxdepth 1 -name 'cm-global-backup-*.json' | head -1)
+if [ -f "$GLOBAL_BACKUP_FILE" ]; then
+  mark_pass "global backup file"
+else
+  mark_fail "global backup file missing"
+fi
+rm -rf "$HOME/.cm"
+GREST=$($CMD restore --global "$GLOBAL_BACKUP_FILE" 2>&1)
+assert_grep "global restore command" "Restored" "$GREST"
+cd "$TESTDIR/other-project"
+GREC2=$($CMD recall "docker env deploy classico" --level 1 2>&1)
+assert_grep "global restore recall" "\\[global\\]" "$GREC2"
+cd "$TESTDIR"
+echo ""
+
 # ======================================================
 #  EMBEDDING TESTS
 # ======================================================
 
-# TEST 18: trigram embedding — recall con variante morfologica
-echo "━━━ TEST 18: trigram recall (variante morfologica) ━━━"
+# TEST 21: trigram embedding — recall con variante morfologica
+echo "━━━ TEST 21: trigram recall (variante morfologica) ━━━"
 # "crash" non esiste come parola esatta, ma "crasha" è variante morfologica di "crash"
 RC_TRI=$($CMD recall "deploy con docker compose" --mode hybrid --level 1 2>&1)
 assert_grep "trigram trova docker" "Docker" "$RC_TRI"
@@ -205,13 +257,13 @@ RC_SCORE=$($CMD recall "distribuzione container" --mode hybrid --level 1 2>&1)
 assert_grep "trigram trova refuso semantico" "Docker" "$RC_SCORE"
 echo ""
 
-# TEST 19: vectorize via consolidate
-echo "━━━ TEST 19: vectorize su consolidate ━━━"
+# TEST 22: vectorize via consolidate
+echo "━━━ TEST 22: vectorize su consolidate ━━━"
 # Salviamo un'altra memoria — consolidate dovrebbe vettorizzarla
 $CMD save --kind fact "Il deployment su ECS fallisce per mancata configurazione" > /dev/null 2>&1
 # Forziamo consolidate che ora vectorizza anche
 CO2=$($CMD consolidate 2>&1)
-VEC_COUNT=$(node -e "
+VEC_COUNT=$(node --experimental-sqlite -e "
 const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('memory/state.db');
 const r=d.prepare('SELECT COUNT(*) AS c FROM memory_vectors').get();
 console.log(r.c);
@@ -223,8 +275,8 @@ else
 fi
 echo ""
 
-# TEST 20: trigram + keyword — hybrid mode senza Ollama
-echo "━━━ TEST 20: hybrid recall con trigram (nessuna query keyword match) ━━━"
+# TEST 23: trigram + keyword — hybrid mode senza Ollama
+echo "━━━ TEST 23: hybrid recall con trigram (nessuna query keyword match) ━━━"
 # Cerchiamo "contenitore" che non è parola esatta in nessuna memoria (c'è "container")
 RC_HYB=$($CMD recall "contenitore deployment" --mode hybrid --level 1 2>&1)
 if echo "$RC_HYB" | grep -qi "Docker\|ECS\|deploy"; then
@@ -234,8 +286,8 @@ else
 fi
 echo ""
 
-# TEST 21: keyword-only mode NON usa trigram
-echo "━━━ TEST 21: keyword-only mode ━━━"
+# TEST 24: keyword-only mode NON usa trigram
+echo "━━━ TEST 24: keyword-only mode ━━━"
 RC_KW=$($CMD recall "contenitore" --mode keyword --level 1 2>&1)
 # In keyword mode non dovrebbe trovare "container" cercando "contenitore"
 if echo "$RC_KW" | grep -qi "Plan.*mode=keyword"; then
@@ -250,11 +302,11 @@ echo ""
 # ======================================================
 
 if curl -s -o /dev/null -w "%{http_code}" http://localhost:11434/api/tags 2>/dev/null | grep -q 200; then
-  echo "━━━ TEST 22: Ollama embedding disponibile ━━━"
+  echo "━━━ TEST 25: Ollama embedding disponibile ━━━"
   # Salva una memoria nuova e forza l'embedding via consolidate
   $CMD save --kind decision "Preferiamo REST su GraphQL per semplicità" > /dev/null 2>&1
   CO3=$($CMD consolidate 2>&1)
-  OLLAMA_VEC=$(node -e "
+  OLLAMA_VEC=$(node --experimental-sqlite -e "
 const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('memory/state.db');
 const r=d.prepare(\"SELECT COUNT(*) AS c FROM memory_vectors WHERE model='nomic-embed-text'\").get();
 console.log(r.c);
@@ -266,7 +318,7 @@ console.log(r.c);
   fi
   echo ""
 
-  echo "━━━ TEST 23: hybrid recall con Ollama (priorità su trigram) ━━━"
+  echo "━━━ TEST 26: hybrid recall con Ollama (priorità su trigram) ━━━"
   RC_OL=$($CMD recall "API design pattern" --mode hybrid --level 1 2>&1)
   if echo "$RC_OL" | grep -qi "GraphQL\|REST"; then
     mark_pass "Ollama recall trova API decision"
@@ -275,7 +327,7 @@ console.log(r.c);
   fi
   echo ""
 else
-  echo "━━━ SKIP TEST 22-23: Ollama non disponibile ━━━"
+  echo "━━━ SKIP TEST 25-26: Ollama non disponibile ━━━"
   echo "  ⏭️  Per testare embedding Ollama: ollama pull nomic-embed-text"
   echo ""
 fi

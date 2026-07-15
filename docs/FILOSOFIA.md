@@ -8,15 +8,15 @@ La sessione successiva è una tabula rasa. Il progetto che hai spiegato ieri, la
 
 I sistemi di memoria esistenti risolvono questo problema in modi diversi, ma spesso introducono complessità sproporzionata. code-mem nasce da una convinzione precisa:
 
-> **La persistenza della conoscenza non dovrebbe richiedere un database esterno, un servizio cloud, o un'infrastruttura complessa. Dovrebbe essere un file SQLite in una cartella `.gitignore`, un CLI che ci sta in un file, e nient'altro.**
+> **La persistenza della conoscenza non dovrebbe richiedere un database esterno, un servizio cloud, o un'infrastruttura complessa. Dovrebbe essere uno o due file SQLite locali, un CLI che ci sta in un file, e nient'altro.**
 
 ## Principi fondanti
 
 ### 1. Local-first, sempre
 
-Tutto ciò che code-mem sa è in un singolo file `state.db` dentro la cartella `memory/` del progetto. Non c'è un server, non c'è un cloud, non c'è un API key. Il database è un file che puoi copiare, versionare (se vuoi), cancellare, portare su un ramo Git diverso.
+code-mem è local-first: la memoria di progetto vive in `memory/state.db`, mentre la memoria opzionale cross-progetto vive in `~/.cm/state.db`. Non c'è un server, non c'è un cloud, non c'è un API key. Sono file SQLite locali che puoi copiare, versionare, ispezionare o portare su un'altra macchina.
 
-Perché? Perché la memoria di un progetto appartiene al progetto, non a un servizio esterno. Quando cloni un repository, la memoria — se versionata — viene con te. Quando lavori offline, funziona lo stesso. Quando cambi provider AI, la memoria non cambia.
+Perché? Perché la memoria di progetto appartiene al progetto, mentre le procedure personali riusabili appartengono all'utente, non a un servizio esterno. Quando cloni un repository, la memoria del progetto — se versionata — viene con te. Quando lavori offline, entrambe funzionano lo stesso. Quando cambi provider AI, la memoria non cambia.
 
 ### 2. Tipi, strati, e gradazioni
 
@@ -58,12 +58,13 @@ Il risultato è che una memoria può essere recuperata anche se non contiene nes
 
 ### 4. Tre formati, un database
 
-code-mem produce tre viste della stessa informazione:
+code-mem produce più viste locali della stessa informazione:
 
-1. **`state.db`** (SQLite) — la fonte di verità, con FTS5 full-text search, embedding vettoriali, relazioni tra memorie, contesto di sessione
-2. **`MEMORY.md`** — proiezione testuale per il progetto, sempre sotto ~2200 caratteri, pensata per essere caricata nel contesto di un agente
-3. **`USER.md`** — proiezione delle preferenze utente, sotto ~1400 caratteri
-4. **`graph.json`** — grafo leggero di nodi (progetto, moduli, tecnologie) ed archi (dipendenze, relazioni)
+1. **`memory/state.db`** (SQLite) — fonte di verità per la memoria del progetto
+2. **`~/.cm/state.db`** (SQLite) — fonte di verità opzionale per la memoria globale cross-progetto
+3. **`MEMORY.md`** — proiezione testuale per il progetto, sempre sotto ~2200 caratteri, pensata per essere caricata nel contesto di un agente
+4. **`USER.md`** — proiezione delle preferenze utente, sotto ~1400 caratteri
+5. **`graph.json`** — grafo leggero di nodi (progetto, moduli, tecnologie) ed archi (dipendenze, relazioni)
 
 Le proiezioni Markdown sono *generated artifacts* — non vanno modificate a mano. Il database è l'unico source of truth.
 
@@ -89,7 +90,7 @@ La skill SKILL.md è un contratto leggero: ogni agente capisce quando e come usa
 
 ### Non è un RAG system
 
-code-mem non indicizza ogni file del progetto. Non fa chunking, non fa retrieval su documenti arbitrari, non cerca di rispondere a domande sul codice. Si occupa solo di **memoria progettuale**: decisioni, fatti, procedure, issue, preferenze. Per cercare nel codice, ci sono grep, graphify, e gli strumenti nativi dell'agente.
+code-mem non indicizza ogni file del progetto. Non fa chunking, non fa retrieval su documenti arbitrari, non cerca di rispondere a domande sul codice. Si occupa solo di **memoria di progetto e memoria operativa personale**: decisioni, fatti, procedure, issue, preferenze. Per cercare nel codice, ci sono grep, graphify, e gli strumenti nativi dell'agente.
 
 ### Non ha un server
 
@@ -97,7 +98,7 @@ Non c'è un processo da tenere acceso, nessuna porta da esporre, nessun health c
 
 ### Non sincronizza in cloud
 
-Non c'è sync, non c'è multi-device, non c'è collaboration in real-time. La memoria è locale al progetto. Se vuoi condividerla, committi `memory/` (o parte di essa) nel repository.
+Non c'è sync, non c'è collaboration in real-time, non c'è backend ospitato. La memoria resta locale alla macchina: quella di progetto nel repo, quella globale in `~/.cm/`. Se vuoi condividerla, committi `memory/` per la conoscenza di progetto oppure usi `cm backup --global` / `cm restore --global` per la conoscenza personale globale.
 
 ### Non è un grafo della conoscenza
 
@@ -113,6 +114,7 @@ Setup una tantum:
 
 Nell'uso quotidiano:
   cm save --kind decision "..."   # dopo una decisione importante
+  cm save --kind procedure --global "..."  # per workflow riusabili cross-progetto
   cm recall "task"                # prima di iniziare un task
   cm touch <id>                   # quando una memoria si rivela utile
   cm consolidate                  # dopo una sessione intensa
@@ -120,6 +122,7 @@ Nell'uso quotidiano:
 Automatico:
   cm watch --daemon               # embedding + consolidate in background
                                   # SessionStart hook → recall-auto a ogni sessione
+                                  # recall-auto cerca sia nel progetto sia nel globale
 ```
 
 ## Perché la semplicità vince
@@ -129,3 +132,10 @@ La memoria di progetto è un problema di *persistenza*, non di *potenza*. Un fil
 code-mem preferisce essere noioso e funzionare sempre piuttosto che essere intelligente ma fragile. Preferisce essere locale e portabile piuttosto che connesso e potente. Preferisce essere semplice e documentato piuttosto che astratto e flessibile.
 
 Questa è la sua filosofia. E, crediamo, la sua forza.
+
+---
+
+## Vedi anche
+
+- **[PHILOSOPHY.md](PHILOSOPHY.md)** — English version
+- **[COMPARAZIONE.md](COMPARAZIONE.md)** — comparazione con altri sistemi di memoria

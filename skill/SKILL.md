@@ -1,9 +1,9 @@
 ---
 name: cm
 description: >-
-  Persistent project memory via `cm` CLI. Save typed project memories,
-  preferences, retrieval plans, graph relationships, and search past
-  conversations from SQLite.
+  Persistent project memory via `cm` CLI, with optional global memory.
+  Save typed project memories, preferences, retrieval plans, graph
+  relationships, and search past conversations from SQLite.
 ---
 
 # cm - Code-Mem Tool
@@ -25,11 +25,15 @@ cm update
 ## Core Commands
 
 - `cm save --kind decision "Use Vitest for unit tests"` - save a typed memory
+- `cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"` - save a cross-project memory
 - `cm recall "fix flaky tests" --level 2` - retrieve relevant memory for a task
 - `cm plan "deploy preview build"` - inspect the retrieval plan
 - `cm recent` - list recent memories
 - `cm consolidate` - promote and normalize memories
 - `cm project` - regenerate `MEMORY.md` and `USER.md`
+- `cm backup` - save project memories to `./cm/memories/<timestamp>/project-memory.md`
+- `cm backup --global` - export global memories to a backup file in the current directory
+- `cm restore --global [file]` - merge a global backup into `~/.cm/state.db`
 
 ## Legacy Compatibility
 
@@ -50,6 +54,7 @@ cm update
 ## Guidelines
 
 1. Save durable facts, decisions, procedures, issues, and preferences with `cm save`.
-2. Use `cm recall` at the start of substantial coding tasks.
-3. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`.
-4. Use `cm consolidate` after debugging or implementation sessions to keep the projection compact.
+2. If the memory should be automatically available in every project, use `cm save --global`.
+3. Use `cm recall` at the start of substantial coding tasks; it also searches global memory automatically.
+4. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`.
+5. Use `cm consolidate` after debugging or implementation sessions to keep the projection compact.

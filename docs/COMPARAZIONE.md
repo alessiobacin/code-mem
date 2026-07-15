@@ -24,7 +24,7 @@ claude-mem è un MCP server che offre memoria persistente cross-progetto con ric
 
 | Dimensione | code-mem | claude-mem |
 |-----------|----------|------------|
-| **Dove vive** | `memory/state.db` nel progetto | Remote API (cloud MCP) |
+| **Dove vive** | `memory/state.db` + opzionale `~/.cm/state.db` | Remote API (cloud MCP) |
 | **Ricerche** | FTS5 locale + embedding semantico opzionale (Ollama) | Semantic search via MCP API remota |
 | **Dipendenze** | Zero (Node 22+ built-in) | npm + MCP plugin + server remoto |
 | **Agent supporto** | Claude, Codex, Cursor, Pi, CLI | Solo Claude Code (MCP-based) |
@@ -41,13 +41,13 @@ claude-mem è un MCP server che offre memoria persistente cross-progetto con ric
 
 - **Zero costi ricorrenti** — nessun API server da mantenere
 - **100% offline** — perfetto per sviluppo in aereo, in treno, o su reti aziendali restrittive
-- **Privacy totale** — le memorie non lasciano mai il tuo progetto
+- **Privacy totale** — le memorie non lasciano mai la tua macchina
 - **Agent-agnostic** — funziona con qualsiasi coding agent, non solo Claude Code
 - **Tipi e strati** — distinzione semantica tra fact, decision, procedure, issue
 
 ### Svantaggi di code-mem
 
-- **Nessuna persistenza cross-progetto** — ogni progetto ha la sua memoria separata
+- **Nessuna persistenza cross-progetto ospitata** — la memoria globale resta locale alla macchina finché non la esporti/importi
 - **Niente cloud sync** — non esiste un modo per avere la stessa memoria su più macchine
 - **Ricerca semantica opzionale e meno potente** — basata su Ollama locale, non su modelli cloud specializzati
 - **Niente sharing** — non puoi condividere memorie con il team in tempo reale
@@ -184,7 +184,7 @@ Mem0 è una piattaforma di memoria per LLM con API REST, embedding automatico, e
 | **Storia** | Versioni hash-based | Storico completo delle modifiche |
 | **Integrazione** | Qualsiasi agente (skill install) | Python SDK + REST API |
 | **Auto-consolidamento** | `cm consolidate`, watch daemon | Sintesi automatica della storia |
-| **Utenti multipli** | No (per-progetto) | Sì (multi-user nativo) |
+| **Utenti multipli** | No (store locali single-user) | Sì (multi-user nativo) |
 
 ### Vantaggi di code-mem
 
@@ -199,7 +199,7 @@ Mem0 è una piattaforma di memoria per LLM con API REST, embedding automatico, e
 - **Niente multi-utente** — non puoi condividere memoria con il team
 - **Niente embedding automatico** — richiede Ollama e non è così sofisticato
 - **Niente sintesi storica** — non genera riassunti automatici dell'evoluzione
-- **Scala sul singolo progetto** — non è pensato per memoria a livello di organizzazione
+- **Non scala a livello organizzazione** — la memoria globale resta personale, locale, e da spostare manualmente tra macchine
 
 ### Quando scegliere code-mem
 
@@ -229,7 +229,7 @@ Zep è una piattaforma di memoria persistente per AI assistant, con analisi di e
 | **Graph** | JSON graph leggero | Knowledge graph con entità e relazioni |
 | **Search** | FTS5 + ranking deterministico + embedding opzionale | Semantic + keyword + graph traversal |
 | **Setup** | `curl \| bash` | Docker compose + API key |
-| **Persistenza** | Per-progetto (SQLite) | Cloud o self-hosted PostgreSQL |
+| **Persistenza** | SQLite per-progetto + SQLite globale locale opzionale | Cloud o self-hosted PostgreSQL |
 | **Classificazione** | Manuale (kind + layer) | Automatica (entità, temi, classi) |
 | **API** | CLI locale | REST API (REST + WebSocket) |
 | **Offline** | Sì | No (solo self-hosted) |
@@ -248,7 +248,7 @@ Zep è una piattaforma di memoria persistente per AI assistant, con analisi di e
 - **Niente entity extraction automatica** — Zep estrae entità, code-mem no
 - **Niente analisi NLP** — nessuna summarization automatica oltre il troncamento
 - **Niente API REST** — non espone servizi, solo CLI
-- **Niente self-hosting scalabile** — pensato per singolo progetto, non per cluster
+- **Niente self-hosting scalabile** — pensato per memoria personale e di progetto, non per cluster
 
 ### Quando scegliere code-mem
 
@@ -326,7 +326,7 @@ Letta implementa un agente con memoria gerarchica (core block + archival memory 
 | **CLI** | `cm` — CLI completo | `letta` — CLI per gestione agenti |
 | **Runtime** | Node.js 22+ | Python 3.10+ |
 | **Auto-management** | consolidate, watch daemon | Core memory eviction automatica |
-| **Multi-agent** | No (per-progetto) | Sì (gestisce multipli agenti con memorie separate) |
+| **Multi-agent** | No (tool di memoria single-user) | Sì (gestisce multipli agenti con memorie separate) |
 | **Tool use** | Richiede skill install | Nativo nel runtime agente |
 | **Setup weight** | Leggero (~57KB il CLI) | Pesante (server DB, modelli, dipendenze Python) |
 | **Offline** | Sì | Parziale (dipende dal modello) |
@@ -377,7 +377,7 @@ Letta implementa un agente con memoria gerarchica (core block + archival memory 
 | **API** | CLI | MCP | CLI/MCP | File | REST | REST | Python SDK | REST/WS |
 | **Graph** | ✅ | ❌ | ✅✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Ecosystem** | Nuovo | Nuovo | Maturo | Nativo | Maturo | Maturo | Grande | Medio |
-| **Ideale per** | Sviluppo quotidiano, progetto singolo | Cross-project Claude Code users | Codebase exploration, archaelogy | Dev semplici, utenti Claude | Team, multi-user, organizzazioni | Applicazioni AI, entity extraction | LangChain users, Python stack | Agenti autonomi, ricerca AI |
+| **Ideale per** | Sviluppo quotidiano, memoria di progetto + abitudini globali personali | Cross-project Claude Code users | Codebase exploration, archaelogy | Dev semplici, utenti Claude | Team, multi-user, organizzazioni | Applicazioni AI, entity extraction | LangChain users, Python stack | Agenti autonomi, ricerca AI |
 
 **Legenda:**
 - ⭐⭐⭐ = Eccellente / ⭐⭐ = Buono / ⭐ = Base
@@ -408,4 +408,5 @@ La bellezza di code-mem è che non ti chiude porte: è abbastanza semplice da po
 
 ## Vedi anche
 
-- **[TEST-COMPARATIVI.md](TEST-COMPARATIVI.md)** — test pratici fianco a fianco: apri due terminali con code-mem e un altro sistema, esegui gli stessi scenari, e vedi con i tuoi occhi la differenza nel ritrovare decisioni, workaround, e informazioni cross-sessione
+- **[COMPARISON.md](COMPARISON.md)** — English version
+- **[FILOSOFIA.md](FILOSOFIA.md)** — la filosofia alla base del progetto
