@@ -37,7 +37,16 @@ HELP=$($CMD help 2>&1)
 assert_grep "shows init" "cm init" "$HELP"
 assert_grep "shows save" "cm save" "$HELP"
 assert_grep "shows update" "cm update" "$HELP"
+assert_grep "shows version" "cm version" "$HELP"
 assert_grep "shows recall modes" "keyword|hybrid|semantic" "$HELP"
+echo ""
+
+# TEST 1b: version
+echo "━━━ TEST 1b: cm version ━━━"
+VERSION_CMD=$($CMD version 2>&1)
+assert_grep "version command" "^0\\." "$VERSION_CMD"
+VERSION_FLAG=$($CMD --version 2>&1)
+assert_grep "version flag" "^0\\." "$VERSION_FLAG"
 echo ""
 
 # TEST 2: init
@@ -179,8 +188,22 @@ else
 fi
 echo ""
 
-# TEST 17: re-init idempotent
-echo "━━━ TEST 17: cm init idempotent ━━━"
+# TEST 17: setup from home warns and skips global hook
+echo "━━━ TEST 17: cm setup from home dir ━━━"
+cd "$HOME"
+SU_HOME=$($CMD setup 2>&1 < /dev/null)
+assert_grep "home warning" "Warning: current directory is your home folder" "$SU_HOME"
+assert_grep "home skip" "Skipped hook installation" "$SU_HOME"
+if [ -f "$HOME/.claude/settings.json" ]; then
+  mark_fail "global hook unexpectedly created"
+else
+  mark_pass "no global hook created"
+fi
+cd "$TESTDIR"
+echo ""
+
+# TEST 18: re-init idempotent
+echo "━━━ TEST 18: cm init idempotent ━━━"
 RI=$($CMD init 2>&1)
 assert_grep "re-init" "Memory initialized" "$RI"
 BEFORE=$($CMD ls 2>&1 | wc -l)
@@ -193,8 +216,8 @@ else
 fi
 echo ""
 
-# TEST 18: global save + recall + snapshot
-echo "━━━ TEST 18: global save + recall ━━━"
+# TEST 19: global save + recall + snapshot
+echo "━━━ TEST 19: global save + recall ━━━"
 GSAVE=$($CMD save --kind procedure --global "Deploy classico: chiedi conferma e usa Docker sul server del file .env" 2>&1)
 assert_grep "global save" "Saved globally" "$GSAVE"
 GLOBAL_MD_COUNT=$(find "$HOME/.cm/memories" -name global-memory.md 2>/dev/null | wc -l | tr -d ' ')
@@ -212,8 +235,8 @@ assert_grep "global recall text" "Docker" "$GREC"
 cd "$TESTDIR"
 echo ""
 
-# TEST 19: project backup
-echo "━━━ TEST 19: project backup ━━━"
+# TEST 20: project backup
+echo "━━━ TEST 20: project backup ━━━"
 PBACK=$($CMD backup 2>&1)
 assert_grep "project backup command" "Project backup written" "$PBACK"
 PROJECT_BACKUPS=$(find "$TESTDIR/cm/memories" -name project-memory.md 2>/dev/null | wc -l | tr -d ' ')
@@ -224,8 +247,8 @@ else
 fi
 echo ""
 
-# TEST 20: global backup + restore
-echo "━━━ TEST 20: global backup + restore ━━━"
+# TEST 21: global backup + restore
+echo "━━━ TEST 21: global backup + restore ━━━"
 GBACK=$($CMD backup --global 2>&1)
 assert_grep "global backup command" "Global backup written" "$GBACK"
 GLOBAL_BACKUP_FILE=$(find "$TESTDIR" -maxdepth 1 -name 'cm-global-backup-*.json' | head -1)
@@ -247,8 +270,8 @@ echo ""
 #  EMBEDDING TESTS
 # ======================================================
 
-# TEST 21: trigram embedding — recall con variante morfologica
-echo "━━━ TEST 21: trigram recall (variante morfologica) ━━━"
+# TEST 22: trigram embedding — recall con variante morfologica
+echo "━━━ TEST 22: trigram recall (variante morfologica) ━━━"
 # "crash" non esiste come parola esatta, ma "crasha" è variante morfologica di "crash"
 RC_TRI=$($CMD recall "deploy con docker compose" --mode hybrid --level 1 2>&1)
 assert_grep "trigram trova docker" "Docker" "$RC_TRI"
@@ -257,8 +280,8 @@ RC_SCORE=$($CMD recall "distribuzione container" --mode hybrid --level 1 2>&1)
 assert_grep "trigram trova refuso semantico" "Docker" "$RC_SCORE"
 echo ""
 
-# TEST 22: vectorize via consolidate
-echo "━━━ TEST 22: vectorize su consolidate ━━━"
+# TEST 23: vectorize via consolidate
+echo "━━━ TEST 23: vectorize su consolidate ━━━"
 # Salviamo un'altra memoria — consolidate dovrebbe vettorizzarla
 $CMD save --kind fact "Il deployment su ECS fallisce per mancata configurazione" > /dev/null 2>&1
 # Forziamo consolidate che ora vectorizza anche
@@ -275,8 +298,8 @@ else
 fi
 echo ""
 
-# TEST 23: trigram + keyword — hybrid mode senza Ollama
-echo "━━━ TEST 23: hybrid recall con trigram (nessuna query keyword match) ━━━"
+# TEST 24: trigram + keyword — hybrid mode senza Ollama
+echo "━━━ TEST 24: hybrid recall con trigram (nessuna query keyword match) ━━━"
 # Cerchiamo "contenitore" che non è parola esatta in nessuna memoria (c'è "container")
 RC_HYB=$($CMD recall "contenitore deployment" --mode hybrid --level 1 2>&1)
 if echo "$RC_HYB" | grep -qi "Docker\|ECS\|deploy"; then
@@ -286,8 +309,8 @@ else
 fi
 echo ""
 
-# TEST 24: keyword-only mode NON usa trigram
-echo "━━━ TEST 24: keyword-only mode ━━━"
+# TEST 25: keyword-only mode NON usa trigram
+echo "━━━ TEST 25: keyword-only mode ━━━"
 RC_KW=$($CMD recall "contenitore" --mode keyword --level 1 2>&1)
 # In keyword mode non dovrebbe trovare "container" cercando "contenitore"
 if echo "$RC_KW" | grep -qi "Plan.*mode=keyword"; then
@@ -302,7 +325,7 @@ echo ""
 # ======================================================
 
 if curl -s -o /dev/null -w "%{http_code}" http://localhost:11434/api/tags 2>/dev/null | grep -q 200; then
-  echo "━━━ TEST 25: Ollama embedding disponibile ━━━"
+  echo "━━━ TEST 26: Ollama embedding disponibile ━━━"
   # Salva una memoria nuova e forza l'embedding via consolidate
   $CMD save --kind decision "Preferiamo REST su GraphQL per semplicità" > /dev/null 2>&1
   CO3=$($CMD consolidate 2>&1)
@@ -318,7 +341,7 @@ console.log(r.c);
   fi
   echo ""
 
-  echo "━━━ TEST 26: hybrid recall con Ollama (priorità su trigram) ━━━"
+  echo "━━━ TEST 27: hybrid recall con Ollama (priorità su trigram) ━━━"
   RC_OL=$($CMD recall "API design pattern" --mode hybrid --level 1 2>&1)
   if echo "$RC_OL" | grep -qi "GraphQL\|REST"; then
     mark_pass "Ollama recall trova API decision"
@@ -327,7 +350,7 @@ console.log(r.c);
   fi
   echo ""
 else
-  echo "━━━ SKIP TEST 25-26: Ollama non disponibile ━━━"
+  echo "━━━ SKIP TEST 26-27: Ollama non disponibile ━━━"
   echo "  ⏭️  Per testare embedding Ollama: ollama pull nomic-embed-text"
   echo ""
 fi

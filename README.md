@@ -139,6 +139,12 @@ Usage:
 cm setup
 ```
 
+Notes:
+
+- the skill is installed in supported user-level harness directories
+- the `SessionStart` hook is installed only for the current project in `.claude/settings.json`
+- if you run `cm setup` from your home directory, `cm` warns and asks before installing a global hook there; this is not recommended
+
 ### `cm update`
 
 Check the GitHub version of `cm`, download the latest CLI, replace the current executable, and refresh installed skill files.
@@ -155,6 +161,18 @@ Notes:
 - `cm update` compares the local CLI version with the remote `main` branch version.
 - `--force` reinstalls even if the versions match.
 - The command updates the current executable path and rewrites harness skill files when possible.
+
+### `cm version`
+
+Show the installed CLI version.
+
+Usage:
+
+```bash
+cm version
+cm --version
+cm -v
+```
 
 ### `cm help`
 

@@ -20,6 +20,7 @@ cm init
 
 ```bash
 cm update
+cm version
 ```
 
 ## Core Commands
@@ -58,3 +59,4 @@ cm update
 3. Use `cm recall` at the start of substantial coding tasks; it also searches global memory automatically.
 4. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`.
 5. Use `cm consolidate` after debugging or implementation sessions to keep the projection compact.
+6. Run `cm setup` from a project directory, not from the user's home folder, unless you explicitly want a global Claude hook.

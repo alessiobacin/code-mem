@@ -12,10 +12,12 @@ const {
   closeSync,
   writeSync,
   unlinkSync,
+  realpathSync,
 } = require("fs");
 const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
+const readline = require("readline");
 const VERSION = "0.4.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
@@ -95,6 +97,29 @@ function mp(c, f) {
 
 function homeDir() {
   return process.env.HOME || process.env.USERPROFILE || "";
+}
+
+function canonicalPath(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function isHomeDir(cwd) {
+  const home = homeDir();
+  return Boolean(home) && canonicalPath(cwd) === canonicalPath(home);
+}
+
+function askYesNo(question) {
+  return new Promise((resolveAnswer) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolveAnswer(/^(y|yes|s|si)$/i.test(String(answer || "").trim()));
+    });
+  });
 }
 
 function globalRoot() {
@@ -588,6 +613,7 @@ Usage:
   cm init
   cm setup
   cm update
+  cm version
   cm help
 
 Memory write commands:
@@ -1547,6 +1573,7 @@ cm init
 
 ## Core commands
 
+- \`cm version\`
 - \`cm save --kind decision "Use Vitest for unit tests"\`
 - \`cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"\`
 - \`cm recall "fix flaky tests" --level 2 --mode hybrid\`
@@ -1577,6 +1604,7 @@ cm init
 6. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
 7. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant project and global memories at session start.
 8. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (Ollama) or trigram fallback (zero deps).
+9. Run \`cm setup\` from a project directory, not from the user's home folder, unless you explicitly want a global Claude hook.
 `;
 }
 
@@ -1598,13 +1626,29 @@ async function setupHarness() {
     } catch {}
   }
   console.log(`Installed skill in ${n} harness(es)`);
-  installHooks(cwd);
+  await installHooks(cwd);
 }
 
-function installHooks(cwd) {
+async function installHooks(cwd) {
   const dir = join(cwd, ".claude");
   const settingsPath = join(dir, "settings.json");
   try {
+    if (isHomeDir(cwd)) {
+      const warning =
+        `Warning: current directory is your home folder (${cwd}). ` +
+        "Installing the SessionStart hook here would make it effectively global, which is not recommended.";
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        console.log(warning);
+        console.log("Skipped hook installation. Run `cm setup` from a project directory if you want a project-local hook.");
+        return;
+      }
+      console.log(warning);
+      const confirmed = await askYesNo("Install the hook globally in your home .claude/settings.json anyway? [y/N] ");
+      if (!confirmed) {
+        console.log("Skipped hook installation.");
+        return;
+      }
+    }
     let settings = {};
     if (existsSync(settingsPath)) {
       settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
@@ -1793,6 +1837,10 @@ function watchLoop(d, cwd, intervalSec, cleanup) {
 
 async function main() {
   const a = process.argv.slice(2);
+  if (a[0] === "--version" || a[0] === "-v") {
+    console.log(VERSION);
+    return;
+  }
   const c = process.cwd();
   if (!a.length || a[0] === "help" || a[0] === "-h") {
     console.log(gl());
@@ -1809,6 +1857,11 @@ async function main() {
   if (cmd === "update") {
     const { flags } = parseArgs(a.slice(1));
     runUpdate(Boolean(flags.force));
+    return;
+  }
+
+  if (cmd === "version") {
+    console.log(VERSION);
     return;
   }
 
@@ -1847,7 +1900,7 @@ async function main() {
     }
     refreshProjections(nd, c);
     nd.close();
-    installHooks(c);
+    await installHooks(c);
     console.log(
       `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}`
     );
