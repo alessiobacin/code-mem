@@ -67,6 +67,7 @@ assert_grep "add entry" "Added:" "$A1"
 $CMD add "Build: Vite, Test: Vitest" > /dev/null 2>&1
 $CMD add "Database: PostgreSQL" > /dev/null 2>&1
 $CMD add "Deploy via Docker Compose on AWS ECS" > /dev/null 2>&1
+$CMD add "Auth uses SQLite with React admin console" > /dev/null 2>&1
 $CMD add "Il container crasha all'avvio per config mancante" > /dev/null 2>&1
 LS=$($CMD ls 2>&1)
 assert_grep "list shows" "TypeScript" "$LS"
@@ -152,6 +153,8 @@ assert_grep "plan task kind" "\"taskKind\"" "$PL"
 RC=$($CMD recall "TypeScript React" --level 2 2>&1)
 assert_grep "recall task" "Task: TypeScript React" "$RC"
 assert_grep "recall level" "Level: 2" "$RC"
+RC_MULTI=$($CMD recall "auth react sqlite" --level 2 2>&1)
+assert_grep "recall multi-concept" "SQLite" "$RC_MULTI"
 echo ""
 
 # TEST 14: FTS5 search

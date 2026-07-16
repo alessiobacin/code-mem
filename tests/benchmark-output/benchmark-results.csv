@@ -1,0 +1,21 @@
+test_id,sistema,operazione,tempo_sec,pass,fail,output_check,storage_kb,note
+2a_init,cm,init,.208,1,0,ok,36,cm init
+2b_init,graphify,pipeline,.108,0,1,graph.json found,0,full pipeline
+2c_save_cm,cm,save_batch_10,.623,1,0,saved 9 entries,40,10 saves
+2d_save_graphify,graphify,update,.215,1,0,graph.json updated,52,post-doc update
+3a_recall_exact,cm,recall_exact,.083,1,0,TypeScript found,0,keyword=TypeScript, level=2
+3b_query_exact,graphify,query_exact,.153,1,0,graph contains TypeScript,0,fallback: graph.json check
+3c_recall_fuzzy,cm,recall_fuzzy,.080,1,0,trigram match,0,typo: typyscrit
+3d_explain,graphify,explain,.155,0,1,explain output,0,explain TypeScript
+3e_path,graphify,path,.149,1,0,path query,0,Auth → Database
+3f_plan,cm,plan,.072,1,0,taskKind found,0,task=fix auth bug
+4a_graph_cm,cm,graph_build,.411,1,0,4 nodes, 4 edges, insights OK,44,manual graph
+4b_path_structural,graphify,path_structural,.147,1,0,path query,0,Auth → Cache
+4c_community,graphify,community_detection,.072,1,0,communities: 4,52,cluster-only
+5a_search_fts5,cm,fts5_search,.067,1,0,FTS5 results,0,query=TypeScript
+5b_query_multi,graphify,query_multi,.174,1,0,multi-concept query,0,auth+database
+6a_consolidate,cm,consolidate,.403,1,0,consolidate OK,0,working→semantic
+6b_project,cm,project,.068,1,0,MEMORY.md/USER.md,    1239,project regeneration
+6c_wiki,graphify,wiki,.078,0,1,wiki not generated,0,FAIL
+9_storage,cm,disk_usage,N/A,1,0,storage: 52KB,52,total storage
+9_storage,graphify,disk_usage,N/A,1,0,storage: 52KB,52,total storage

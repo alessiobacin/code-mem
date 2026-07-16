@@ -8,7 +8,6 @@ Persistent project memory for coding agents and developers, with optional global
 - generated `MEMORY.md` and `USER.md` projections
 - a lightweight JSON graph
 - FTS5 search over stored conversation logs
-- optional global memory in `~/.cm/state.db`
 
 It is designed to stay simple:
 
