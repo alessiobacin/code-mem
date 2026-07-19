@@ -55,6 +55,14 @@ const ES = "\n§\n";
 const DEFAULT_CONFIDENCE = 0.7;
 const DEFAULT_SALIENCE = 0.5;
 const DEFAULT_LIMIT = 8;
+// Harness config filename mapping
+const HARNESS_CONFIGS = {
+  claude: { file: "CLAUDE.md" },
+  pi: { file: "AGENTS.md" },
+  codex: { file: "GEMINI.md" },
+  copilot: { file: ".github/copilot-instructions.md" },
+  cursor: { file: ".cursorrules" },
+};
 const TASK_TEMPLATES = {
   debug: {
     strategy: "DEEP",
@@ -91,6 +99,46 @@ const SECTION_CONFIG = [
   { title: "Reliable Procedures", kinds: ["procedure"], limit: 6 },
   { title: "Known Issues", kinds: ["issue"], limit: 5 },
 ];
+
+const CM_HARNESS_SNIPPET = `# cm - Code-Mem Tool
+
+Persistent project memory for coding agents.
+
+## Init
+
+\`\`\`bash
+cm init
+\`\`\`
+
+## Core commands
+
+- \`cm save --kind decision "Use Vitest for unit tests"\` — save a typed memory
+- \`cm save --kind procedure --global "Reusable deploy steps"\` — cross-project memory
+- \`cm recall "fix flaky tests" --level 2 --mode hybrid\` — retrieve relevant memories
+- \`cm recall-auto\` — auto-recall (used by SessionStart hook)
+- \`cm plan "deploy preview build"\` — inspect retrieval plan
+- \`cm recent\` — list recent memories
+- \`cm consolidate\` — promote and normalize memories
+
+## Guidelines
+
+1. Use \`cm recall\` before grep when you need project memory.
+2. Save durable learnings with \`cm save\`.
+3. Use \`cm save --global\` for cross-project knowledge.
+4. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
+5. Run \`cm consolidate\` after debugging/implementation sessions.
+6. \`cm recall --mode hybrid\` combines keyword + semantic embedding.`;
+
+function harnessComment(harness) {
+  const comments = {
+    claude: "> Instructions for Claude Code — see cm skill for full reference",
+    pi: "> Instructions for Pi CLI — see cm skill for full reference",
+    codex: "> Instructions for Google Codex — see cm skill for full reference",
+    copilot: "> Instructions for Copilot CLI — see cm skill for full reference",
+    cursor: "> Instructions for Cursor — see cm skill for full reference",
+  };
+  return comments[harness] || `> Instructions for ${harness}`;
+}
 
 function mp(c, f) {
   return join(c, "memory", f);
@@ -784,7 +832,7 @@ function gl() {
   return `cm - Code-Mem Tool
 
 Usage:
-  cm init
+  cm init [harness]
   cm setup
   cm update
   cm version
@@ -2007,7 +2055,12 @@ description: Persistent project memory via \`cm\` CLI, with optional global memo
 ## Init
 
 \`\`\`bash
-cm init
+cm init            # default init with auto-scan
+cm init claude     # init + generate CLAUDE.md
+cm init pi         # init + generate AGENTS.md
+cm init codex      # init + generate GEMINI.md
+cm init copilot    # init + generate .github/copilot-instructions.md
+cm init cursor     # init + generate .cursorrules
 \`\`\`
 
 ## Core commands
@@ -2591,6 +2644,7 @@ async function main() {
   }
 
   if (cmd === "init") {
+    const harnessArg = a[1];
     const dr = mp(c, "");
     mkdirSync(dr, { recursive: true });
     if (!existsSync(mp(c, MF))) wr(mp(c, MF), "# Project Memory\n");
@@ -2623,9 +2677,28 @@ async function main() {
     try { runStmt(nd, "VACUUM"); } catch {}
     nd.close();
     await installHooks(c);
-    console.log(
-      `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`
-    );
+    let msg = `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`;
+    if (harnessArg && harnessArg[0] !== "-") {
+      const harness = harnessArg.toLowerCase();
+      const hc = HARNESS_CONFIGS[harness];
+      if (hc) {
+        const configPath = join(c, hc.file);
+        const existing = existsSync(configPath);
+        if (existing) {
+          msg += `\nSkipped ${hc.file} (already exists)`;
+        } else {
+          mkdirSync(dirname(configPath), { recursive: true });
+          const comment = harnessComment(harness);
+          const content = `${comment}\n\n${CM_HARNESS_SNIPPET}\n`;
+          wr(configPath, content);
+          msg += `\n${hc.file} written — ${harness} will load cm instructions on start`;
+        }
+      } else {
+        const valid = Object.keys(HARNESS_CONFIGS).join(", ");
+        msg += `\nUnknown harness "${harnessArg}". Valid: ${valid}`;
+      }
+    }
+    console.log(msg);
     return;
   }
 

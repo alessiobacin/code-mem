@@ -1,0 +1,1057 @@
+diff --git a/bin/cm b/bin/cm
+index 130c870..62a870a 100755
+--- a/bin/cm
++++ b/bin/cm
+@@ -18,7 +18,7 @@ const { join, resolve, basename, dirname } = require("path");
+ const { execSync, spawnSync, spawn } = require("child_process");
+ const http = require("http");
+ const readline = require("readline");
+-const VERSION = "0.4.2";
++const VERSION = "0.4.3";
+ const OLLAMA_BASE = "http://localhost:11434";
+ const EMBED_MODEL = "nomic-embed-text";
+ const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
+@@ -408,6 +408,8 @@ function od(p) {
+       created_at TEXT NOT NULL
+     );
+   `);
++  ensureGraphTables(d);
++  ensureRecallIndexes(d);
+   return d;
+ }
+ 
+@@ -481,6 +483,52 @@ function ensureMemorySearchTable(d) {
+   }
+ }
+ 
++function ensureGraphTables(d) {
++  d.exec(`
++    CREATE TABLE IF NOT EXISTS graph_nodes(
++      id TEXT PRIMARY KEY,
++      label TEXT NOT NULL,
++      type TEXT NOT NULL,
++      metadata_json TEXT NOT NULL DEFAULT '{}',
++      created_at TEXT NOT NULL,
++      updated_at TEXT NOT NULL
++    );
++  `);
++  d.exec(`
++    CREATE TABLE IF NOT EXISTS graph_edges(
++      source_id TEXT NOT NULL,
++      target_id TEXT NOT NULL,
++      relation TEXT NOT NULL,
++      confidence TEXT NOT NULL DEFAULT 'EXTRACTED',
++      metadata_json TEXT NOT NULL DEFAULT '{}',
++      created_at TEXT NOT NULL,
++      PRIMARY KEY(source_id,target_id,relation)
++    );
++  `);
++  d.exec("CREATE INDEX IF NOT EXISTS idx_graph_nodes_type ON graph_nodes(type);");
++  d.exec("CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_id);");
++  d.exec("CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_id);");
++  d.exec("CREATE INDEX IF NOT EXISTS idx_graph_edges_relation ON graph_edges(relation);");
++}
++
++function ensureRecallIndexes(d) {
++  // Performance indexes for recall queries
++  const indexes = [
++    "CREATE INDEX IF NOT EXISTS idx_memory_items_status_kind ON memory_items(status, kind)",
++    "CREATE INDEX IF NOT EXISTS idx_memory_items_status_updated ON memory_items(status, updated_at)",
++    "CREATE INDEX IF NOT EXISTS idx_memory_items_kind_layer ON memory_items(kind, layer)",
++    "CREATE INDEX IF NOT EXISTS idx_memory_items_hash ON memory_items(hash)",
++    "CREATE INDEX IF NOT EXISTS idx_memory_context_memory_id ON memory_context(memory_id)",
++    "CREATE INDEX IF NOT EXISTS idx_memory_vectors_memory_id ON memory_vectors(memory_id)",
++    "CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp)",
++  ];
++  for (const sql of indexes) {
++    try { d.exec(sql); } catch {}
++  }
++  // VACUUM periodically to reclaim space
++  try { d.exec("PRAGMA auto_vacuum=FULL"); } catch {}
++}
++
+ function runStmt(d, sql, params = []) {
+   return d.prepare(sql).run(...params);
+ }
+@@ -493,6 +541,124 @@ function getStmt(d, sql, params = []) {
+   return d.prepare(sql).get(...params);
+ }
+ 
++function normalizeGraphNode(node) {
++  return {
++    id: String(node?.id || "").trim(),
++    label: String(node?.label || node?.id || "").trim(),
++    type: String(node?.type || "unknown").trim() || "unknown",
++    metadata: typeof node?.metadata === "object" && node?.metadata ? node.metadata : {},
++    created: String(node?.created || nowIso()),
++  };
++}
++
++function normalizeGraphEdge(edge) {
++  return {
++    source: String(edge?.source || "").trim(),
++    target: String(edge?.target || "").trim(),
++    relation: String(edge?.relation || "related_to").trim() || "related_to",
++    confidence: String(edge?.confidence || "EXTRACTED").trim() || "EXTRACTED",
++    metadata: typeof edge?.metadata === "object" && edge?.metadata ? edge.metadata : {},
++    created: String(edge?.created || nowIso()),
++  };
++}
++
++function upsertGraphNode(d, node) {
++  const normalized = normalizeGraphNode(node);
++  if (!normalized.id || !normalized.label) return false;
++  const existing = getStmt(d, "SELECT id FROM graph_nodes WHERE id = ?", [normalized.id]);
++  if (existing) {
++    runStmt(
++      d,
++      "UPDATE graph_nodes SET label=?, type=?, metadata_json=?, updated_at=? WHERE id=?",
++      [normalized.label, normalized.type, JSON.stringify(normalized.metadata), nowIso(), normalized.id]
++    );
++    return false;
++  }
++  runStmt(
++    d,
++    "INSERT INTO graph_nodes(id,label,type,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",
++    [normalized.id, normalized.label, normalized.type, JSON.stringify(normalized.metadata), normalized.created, nowIso()]
++  );
++  return true;
++}
++
++function upsertGraphEdge(d, edge) {
++  const normalized = normalizeGraphEdge(edge);
++  if (!normalized.source || !normalized.target || !normalized.relation) return false;
++  const existing = getStmt(
++    d,
++    "SELECT source_id FROM graph_edges WHERE source_id = ? AND target_id = ? AND relation = ?",
++    [normalized.source, normalized.target, normalized.relation]
++  );
++  if (existing) return false;
++  runStmt(
++    d,
++    "INSERT INTO graph_edges(source_id,target_id,relation,confidence,metadata_json,created_at) VALUES(?,?,?,?,?,?)",
++    [
++      normalized.source,
++      normalized.target,
++      normalized.relation,
++      normalized.confidence,
++      JSON.stringify(normalized.metadata),
++      normalized.created,
++    ]
++  );
++  return true;
++}
++
++function loadGraphFromStore(d) {
++  const nodes = allStmt(
++    d,
++    "SELECT id,label,type,metadata_json,created_at FROM graph_nodes ORDER BY id"
++  ).map((row) => ({
++    id: row.id,
++    label: row.label,
++    type: row.type,
++    metadata: safeJsonParse(row.metadata_json || "{}", {}),
++    created: row.created_at,
++  }));
++  const edges = allStmt(
++    d,
++    "SELECT source_id,target_id,relation,confidence,metadata_json,created_at FROM graph_edges ORDER BY source_id, target_id, relation"
++  ).map((row) => ({
++    source: row.source_id,
++    target: row.target_id,
++    relation: row.relation,
++    confidence: row.confidence,
++    metadata: safeJsonParse(row.metadata_json || "{}", {}),
++    created: row.created_at,
++  }));
++  return { nodes, edges };
++}
++
++function syncGraphProjection(d, cwd) {
++  wg(mp(cwd, GF), loadGraphFromStore(d));
++}
++
++function importLegacyGraphFile(d, cwd) {
++  const hasGraphNodes = getStmt(d, "SELECT id FROM graph_nodes LIMIT 1");
++  if (hasGraphNodes) return 0;
++  const graphPath = mp(cwd, GF);
++  if (!existsSync(graphPath)) return 0;
++  const graph = rg(graphPath);
++  let imported = 0;
++  for (const node of graph.nodes || []) {
++    if (upsertGraphNode(d, node)) imported += 1;
++  }
++  for (const edge of graph.edges || []) {
++    upsertGraphEdge(d, edge);
++  }
++  syncGraphProjection(d, cwd);
++  return imported;
++}
++
++function ensureGraphStoreReady(d, cwd) {
++  importLegacyGraphFile(d, cwd);
++  if (!existsSync(mp(cwd, GF))) {
++    syncGraphProjection(d, cwd);
++  }
++}
++
+ function hashText(text) {
+   let hash = 2166136261;
+   for (let i = 0; i < text.length; i += 1) {
+@@ -615,6 +781,7 @@ Usage:
+   cm setup
+   cm update
+   cm version
++  cm explain
+   cm help
+ 
+ Memory write commands:
+@@ -635,6 +802,7 @@ Memory read commands:
+   cm recent [n]
+   cm plan <task>
+   cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic]
++  cm explain <task> [--limit n] [--mode keyword|hybrid|semantic]
+   cm recall-auto
+   cm watch [--interval N] [--daemon]
+   cm project
+@@ -644,7 +812,9 @@ Graph commands:
+   cm ga <id> <label> <type>
+   cm ge <source> <target> <relation> [confidence]
+   cm gn <id>
+-  cm gp <from> <to>
++  cm gp <from> <to> [--dijkstra]
++  cm gc
++  cm gx
+   cm gs
+   cm gi
+ 
+@@ -1244,15 +1414,22 @@ function saveGlobalSnapshot(d, id) {
+ 
+ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
+   const text = `${row.title} ${row.body} ${row.summary || ""}`.toLowerCase();
+-  const queryWords = String(task)
+-    .toLowerCase()
+-    .split(/\s+/)
+-    .filter((word) => word.length > 2);
++  const queryWords = tokenizeQuery(task).filter((word) => word.length > 2);
+   let keywordHits = 0;
+   for (const word of queryWords) if (text.includes(word)) keywordHits += 1;
+   const keywordScore = queryWords.length ? keywordHits / queryWords.length : 0;
++  const conceptScore = scoreConceptCoverage(row, queryWords);
++  const graphConceptScore = scoreConceptCoverage(row, plan.graphTerms || []);
+   const queryEntry = plan.queries.find((q) => q.kind === row.kind);
+   const kindPriorityScore = queryEntry ? 1 / queryEntry.priority : 0.05;
++  const curationScore =
++    row.kind === "decision" ? 1 :
++    row.kind === "procedure" ? 0.9 :
++    row.kind === "issue" ? 0.8 :
++    row.kind === "artifact" ? 0.7 :
++    row.kind === "fact" ? 0.5 :
++    row.kind === "preference" ? 0.3 : 0.4;
++  const sourceScore = row.source === "scan" ? 0.15 : row.source === "legacy-import" ? 0.5 : 1;
+   const branchScore = row.git_branch && row.git_branch === plan.contextFrame.gitBranch ? 1 : 0;
+   const cwdScore = row.cwd && row.cwd === cwd ? 1 : 0;
+   const contextScore = branchScore * 0.6 + cwdScore * 0.4;
+@@ -1261,30 +1438,78 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
+   const accessScore = Math.min(1, (row.access_count || 0) / 8);
+   const graphDb = plan.dbByScope?.[row._scope || "project"] || plan.db;
+   const graphScore = countLinksForMemory(graphDb, row.id);
++  const scopeKey = `${row._scope || "project"}:${row.id}`;
++  const linkInfo = plan.linkExpansion?.[scopeKey] || null;
++  const linkDistanceScore = linkInfo && linkInfo.distance > 0 ? Math.max(0, 1 - (linkInfo.distance - 1) * 0.35) : 0;
+   let score;
+   const mode = plan.mode || "hybrid";
+   const hasSemantic = semanticScore !== undefined && semanticScore >= 0;
++  const semanticDriven = hasSemantic && keywordScore < 0.05 && conceptScore < 0.05;
+   if (mode === "semantic" && hasSemantic) {
+-    score = 0.8 * semanticScore + 0.1 * recencyScore + 0.1 * graphScore;
+-  } else if (mode === "hybrid" && hasSemantic) {
+     score =
+-      0.15 * keywordScore +
+-      0.20 * recencyScore +
+-      0.10 * accessScore +
+-      0.10 * contextScore +
+-      0.05 * kindPriorityScore +
+-      0.10 * graphScore +
+-      0.30 * semanticScore;
++      0.55 * semanticScore +
++      0.1 * recencyScore +
++      0.05 * graphScore +
++      0.1 * conceptScore +
++      0.05 * graphConceptScore +
++      0.1 * sourceScore +
++      0.05 * linkDistanceScore;
++  } else if (mode === "hybrid" && hasSemantic) {
++    if (semanticDriven) {
++      score =
++        0.35 * semanticScore +
++        0.15 * recencyScore +
++        0.1 * accessScore +
++        0.05 * contextScore +
++        0.05 * graphScore +
++        0.15 * curationScore +
++        0.05 * graphScore +
++        0.1 * sourceScore +
++        0.05 * linkDistanceScore;
++    } else {
++      score =
++        0.10 * keywordScore +
++        0.18 * recencyScore +
++        0.10 * accessScore +
++        0.08 * contextScore +
++        0.05 * kindPriorityScore +
++        0.10 * graphScore +
++        0.16 * conceptScore +
++        0.08 * graphConceptScore +
++        0.10 * semanticScore +
++        0.03 * sourceScore +
++        0.02 * linkDistanceScore;
++    }
+   } else {
+     score =
+-      0.3 * keywordScore +
+-      0.2 * recencyScore +
++      0.22 * keywordScore +
++      0.18 * recencyScore +
+       0.15 * accessScore +
+-      0.15 * contextScore +
++      0.10 * contextScore +
+       0.1 * kindPriorityScore +
+-      0.1 * graphScore;
++      0.1 * graphScore +
++      0.1 * conceptScore +
++      0.05 * graphConceptScore +
++      0.03 * sourceScore +
++      0.02 * linkDistanceScore;
+   }
+-  return { score, level, keywordScore, recencyScore, accessScore, contextScore, kindPriorityScore, graphScore, semanticScore };
++  return {
++    score,
++    level,
++    keywordScore,
++    conceptScore,
++    graphConceptScore,
++    sourceScore,
++    curationScore,
++    linkDistanceScore,
++    linkInfo,
++    recencyScore,
++    accessScore,
++    contextScore,
++    kindPriorityScore,
++    graphScore,
++    semanticScore,
++  };
+ }
+ 
+ function countLinksForMemory(d, id) {
+@@ -1296,25 +1521,204 @@ function countLinksForMemory(d, id) {
+   return Math.min(1, (row?.count || 0) / 5);
+ }
+ 
+-async function recallMemories(d, cwd, task, level, limit, mode) {
++function tokenizeQuery(task) {
++  return String(task || "")
++    .toLowerCase()
++    .replace(/['"]/g, " ")
++    .split(/[^a-z0-9_]+/)
++    .filter((word) => word.length > 1);
++}
++
++function buildFtsQuery(words) {
++  return words
++    .filter((word) => word.length > 1)
++    .map((word) => `"${word}"*`)
++    .join(" OR ");
++}
++
++function queryMemoryCandidates(d, words, limit) {
++  const normalized = Array.from(new Set(words.filter((word) => word.length > 1)));
++  if (!normalized.length) return [];
++  const clauses = [];
++  const params = [];
++  let scoreSql = [];
++  for (const word of normalized) {
++    const like = `%${word}%`;
++    clauses.push("(lower(mi.title) LIKE ? OR lower(mi.body) LIKE ? OR lower(coalesce(mi.summary, '')) LIKE ?)");
++    params.push(like, like, like);
++    scoreSql.push(`CASE WHEN lower(mi.title) LIKE '${like.replace(/'/g, "''")}' THEN 3 ELSE 0 END`);
++    scoreSql.push(`CASE WHEN lower(mi.body) LIKE '${like.replace(/'/g, "''")}' THEN 2 ELSE 0 END`);
++    scoreSql.push(`CASE WHEN lower(coalesce(mi.summary, '')) LIKE '${like.replace(/'/g, "''")}' THEN 1 ELSE 0 END`);
++  }
++  return allStmt(
++    d,
++    `SELECT mi.id
++     FROM memory_items mi
++     WHERE mi.status = 'active' AND (${clauses.join(" OR ")})
++     ORDER BY (${scoreSql.join(" + ")}) DESC, mi.updated_at DESC
++     LIMIT ?`,
++    params.concat([limit])
++  ).map((row) => row.id);
++}
++
++function uniqueRowsById(rows) {
++  const seen = new Set();
++  const out = [];
++  for (const row of rows) {
++    if (!row?.id || seen.has(row.id)) continue;
++    seen.add(row.id);
++    out.push(row);
++  }
++  return out;
++}
++
++function loadCandidateRows(d, words, scope, limit) {
++  const ids = queryMemoryCandidates(d, words, limit);
++  const rows = [];
++  for (const id of ids) {
++    const row = listMemoryRows(d, "WHERE mi.id = ?", [id], "").map((entry) => ({ ...entry, _scope: scope }))[0];
++    if (row) rows.push(row);
++  }
++  const fallbackRows = listMemoryRows(
++    d,
++    "WHERE mi.status='active'",
++    [],
++    `ORDER BY mi.updated_at DESC LIMIT ${Math.max(limit, 40)}`
++  ).map((row) => ({ ...row, _scope: scope }));
++  return uniqueRowsById(rows.concat(fallbackRows)).slice(0, Math.max(limit, 40));
++}
++
++function expandGraphTerms(d, words, limit = 12) {
++  if (!words.length) return [];
++  const matched = new Map();
++  for (const word of words) {
++    const like = `%${word}%`;
++    const nodes = allStmt(
++      d,
++      "SELECT id,label,type FROM graph_nodes WHERE lower(label) LIKE ? OR lower(type) LIKE ? LIMIT 8",
++      [like, like]
++    );
++    for (const node of nodes) matched.set(node.id, node);
++  }
++  if (!matched.size) return [];
++  const expanded = new Set();
++  for (const node of matched.values()) {
++    expanded.add(String(node.label || "").toLowerCase());
++    const neighbors = allStmt(
++      d,
++      `SELECT n.label
++       FROM graph_edges e
++       JOIN graph_nodes n ON n.id = CASE WHEN e.source_id = ? THEN e.target_id ELSE e.source_id END
++       WHERE e.source_id = ? OR e.target_id = ?
++       LIMIT 8`,
++      [node.id, node.id, node.id]
++    );
++    for (const neighbor of neighbors) {
++      const label = String(neighbor.label || "").toLowerCase().trim();
++      if (label) expanded.add(label);
++    }
++  }
++  return Array.from(expanded).slice(0, limit);
++}
++
++function scoreConceptCoverage(row, terms) {
++  if (!terms.length) return 0;
++  const text = `${row.title} ${row.body} ${row.summary || ""} ${(tagsForRow(row) || []).join(" ")} ${(filesForRow(row) || []).join(" ")}`
++    .toLowerCase();
++  let matches = 0;
++  for (const term of terms) {
++    if (term && text.includes(term)) matches += 1;
++  }
++  return matches / terms.length;
++}
++
++function loadRowsByIds(d, ids, scope) {
++  const rows = [];
++  for (const id of ids) {
++    const row = listMemoryRows(d, "WHERE mi.id = ?", [id], "").map((entry) => ({ ...entry, _scope: scope }))[0];
++    if (row) rows.push(row);
++  }
++  return rows;
++}
++
++function expandLinkedCandidateMap(d, seedIds, maxDepth = 2, maxTotal = 48) {
++  const visited = new Map();
++  const queue = [];
++  for (const id of seedIds) {
++    if (!id) continue;
++    visited.set(id, { distance: 0, via: null, relation: null });
++    queue.push(id);
++  }
++  while (queue.length && visited.size < maxTotal) {
++    const current = queue.shift();
++    const currentInfo = visited.get(current);
++    if (!currentInfo || currentInfo.distance >= maxDepth) continue;
++    const neighbors = allStmt(
++      d,
++      `SELECT
++         CASE WHEN source_id = ? THEN target_id ELSE source_id END AS id,
++         relation
++       FROM memory_links
++       WHERE source_id = ? OR target_id = ?
++       LIMIT 16`,
++      [current, current, current]
++    );
++    for (const neighbor of neighbors) {
++      if (!neighbor?.id || visited.has(neighbor.id)) continue;
++      visited.set(neighbor.id, {
++        distance: currentInfo.distance + 1,
++        via: current,
++        relation: neighbor.relation,
++      });
++      queue.push(neighbor.id);
++      if (visited.size >= maxTotal) break;
++    }
++  }
++  return visited;
++}
++
++function materializeLinkPath(linkMap, id) {
++  const info = linkMap.get(id);
++  if (!info || info.distance <= 0) return [];
++  const path = [];
++  let currentId = id;
++  let current = info;
++  while (current && current.via) {
++    path.push({ from: current.via, to: currentId, relation: current.relation, distance: current.distance });
++    currentId = current.via;
++    current = linkMap.get(currentId);
++  }
++  return path.reverse();
++}
++
++async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
+   const plan = makePlan(task, cwd);
+   const globalDb = od(globalDbPath());
+   plan.db = d;
+   plan.dbByScope = { project: d, global: globalDb };
+   plan.mode = mode || "hybrid";
+-  const projectRows = listMemoryRows(
+-    d,
+-    "WHERE mi.status='active'",
+-    [],
+-    "ORDER BY mi.updated_at DESC LIMIT 100"
++  plan.explain = Boolean(options.explain);
++  const queryWords = tokenizeQuery(task);
++  const projectGraphTerms = expandGraphTerms(d, queryWords);
++  const globalGraphTerms = expandGraphTerms(globalDb, queryWords);
++  const planGraphTerms = Array.from(new Set(projectGraphTerms.concat(globalGraphTerms))).slice(0, 16);
++  plan.graphTerms = planGraphTerms;
++  const projectSeedIds = queryMemoryCandidates(d, queryWords.concat(projectGraphTerms), 24);
++  const globalSeedIds = queryMemoryCandidates(globalDb, queryWords.concat(globalGraphTerms), 24);
++  const projectLinkMap = expandLinkedCandidateMap(d, projectSeedIds, 2, 48);
++  const globalLinkMap = expandLinkedCandidateMap(globalDb, globalSeedIds, 2, 48);
++  plan.linkExpansion = {};
++  for (const [id, info] of projectLinkMap.entries()) plan.linkExpansion[`project:${id}`] = info;
++  for (const [id, info] of globalLinkMap.entries()) plan.linkExpansion[`global:${id}`] = info;
++  const projectRows = uniqueRowsById(
++    loadRowsByIds(d, Array.from(projectLinkMap.keys()), "project")
++      .concat(loadCandidateRows(d, queryWords.concat(projectGraphTerms), "project", 80))
+   );
+-  const globalRows = listMemoryRows(
+-    globalDb,
+-    "WHERE mi.status='active'",
+-    [],
+-    "ORDER BY mi.updated_at DESC LIMIT 100"
+-  ).map((row) => ({ ...row, _scope: "global" }));
+-  const rows = projectRows.map((row) => ({ ...row, _scope: "project" })).concat(globalRows);
++  const globalRows = uniqueRowsById(
++    loadRowsByIds(globalDb, Array.from(globalLinkMap.keys()), "global")
++      .concat(loadCandidateRows(globalDb, queryWords.concat(globalGraphTerms), "global", 80))
++  );
++  const rows = uniqueRowsById(projectRows.concat(globalRows));
+   const useSemantic = plan.mode !== "keyword" && task && task.trim().length > 0;
+   let taskEmbedding = null;
+   if (useSemantic) {
+@@ -1341,7 +1745,10 @@ async function recallMemories(d, cwd, task, level, limit, mode) {
+       }
+     }
+     const scores = scoreMemory(row, plan, task, cwd, level, semanticScore);
++    const linkMap = row._scope === "global" ? globalLinkMap : projectLinkMap;
++    const linkPath = materializeLinkPath(linkMap, row.id);
+     ranked.push({ row, ...scores });
++    ranked[ranked.length - 1].linkPath = linkPath;
+   }
+   const filtered = ranked
+     .filter((entry) => entry.score > 0.05)
+@@ -1364,6 +1771,7 @@ function renderRecall(task, level, recalled) {
+   const lines = [];
+   lines.push(`Task: ${task}`);
+   lines.push(`Plan: ${recalled.plan.taskKind} / ${recalled.plan.strategy} / mode=${recalled.plan.mode}`);
++  if (recalled.plan.graphTerms?.length) lines.push(`Graph terms: ${recalled.plan.graphTerms.join(", ")}`);
+   lines.push(`Level: ${level}`);
+   lines.push("");
+   if (!recalled.ranked.length) {
+@@ -1373,8 +1781,10 @@ function renderRecall(task, level, recalled) {
+   for (const entry of recalled.ranked) {
+     const row = entry.row;
+     const sem = entry.semanticScore !== undefined && entry.semanticScore >= 0 ? ` sem=${entry.semanticScore.toFixed(3)}` : "";
++    const concept = entry.conceptScore !== undefined ? ` concept=${entry.conceptScore.toFixed(2)}` : "";
++    const graphConcept = entry.graphConceptScore ? ` graph=${entry.graphConceptScore.toFixed(2)}` : "";
+     const scope = row._scope === "global" ? "global" : "project";
+-    const prefix = `[${row.id}] [${row.kind}] [${scope}] score=${entry.score.toFixed(2)}${sem}`;
++    const prefix = `[${row.id}] [${row.kind}] [${scope}] score=${entry.score.toFixed(2)}${sem}${concept}${graphConcept}`;
+     if (level === 1) {
+       lines.push(`${prefix} ${row.title}`);
+       continue;
+@@ -1384,6 +1794,10 @@ function renderRecall(task, level, recalled) {
+       const extra = [];
+       if (files.length) extra.push(`files=${files.join(",")}`);
+       if (row.git_branch) extra.push(`branch=${row.git_branch}`);
++      if (recalled.plan.explain && entry.linkPath?.length) {
++        const pathText = entry.linkPath.map((step) => `${step.from} -[${step.relation}]-> ${step.to}`).join(" | ");
++        extra.push(`linkPath=${pathText}`);
++      }
+       lines.push(`${prefix} ${row.title}`);
+       lines.push(`  ${row.summary || summarize(row.body)}${extra.length ? ` (${extra.join(" · ")})` : ""}`);
+       continue;
+@@ -1395,6 +1809,14 @@ function renderRecall(task, level, recalled) {
+     if (tags.length) lines.push(`  Tags: ${tags.join(", ")}`);
+     const files = filesForRow(row);
+     if (files.length) lines.push(`  Files: ${files.join(", ")}`);
++    if (recalled.plan.explain) {
++      lines.push(
++        `  Explain: keyword=${entry.keywordScore.toFixed(2)} concept=${entry.conceptScore.toFixed(2)} graphTerms=${entry.graphConceptScore.toFixed(2)} links=${entry.linkDistanceScore.toFixed(2)} recency=${entry.recencyScore.toFixed(2)} source=${entry.sourceScore.toFixed(2)}`
++      );
++      if (entry.linkPath?.length) {
++        lines.push(`  Link Path: ${entry.linkPath.map((step) => `${step.from} -[${step.relation}]-> ${step.to}`).join(" | ")}`);
++      }
++    }
+   }
+   return lines.join("\n");
+ }
+@@ -1820,6 +2242,8 @@ async function consolidateMemories(d, cwd) {
+   }
+   const vecInfo = unembedded.length ? `, ${unembedded.length} vectorized${useOllama ? " (ollama)" : ""}` : "";
+   refreshProjections(d, cwd);
++  // VACUUM to reclaim space after consolidation
++  try { runStmt(d, "VACUUM"); } catch {}
+   console.log(`Consolidated ${promoted} item(s).${vecInfo}`);
+ }
+ 
+@@ -1863,6 +2287,153 @@ function watchLoop(d, cwd, intervalSec, cleanup) {
+   tick();
+ }
+ 
++// ─── Community detection (Louvain) ──────────────────────────────────────────
++function detectCommunities(g) {
++  // Simple Louvain-style community detection on undirected graph
++  const nodes = g.nodes || [];
++  const edges = g.edges || [];
++  if (!nodes.length) return [];
++
++  // Build adjacency with weights
++  const adj = {};
++  const weights = {};
++  for (const n of nodes) {
++    adj[n.id] = [];
++    weights[n.id] = {};
++  }
++  for (const e of edges) {
++    const w = typeof e.weight === "number" ? e.weight : 1;
++    if (adj[e.source]) adj[e.source].push(e.target);
++    if (adj[e.target]) adj[e.target].push(e.source);
++    weights[e.source] = weights[e.source] || {};
++    weights[e.target] = weights[e.target] || {};
++    weights[e.source][e.target] = (weights[e.source][e.target] || 0) + w;
++    weights[e.target][e.source] = (weights[e.target][e.source] || 0) + w;
++  }
++
++  // Initialize: each node in its own community
++  const community = {};
++  for (const n of nodes) community[n.id] = n.id;
++
++  // Compute total weight (2x because each edge counted twice)
++  let m = 0;
++  for (const n of nodes) {
++    for (const nb of adj[n.id] || []) m += weights[n.id][nb] || 1;
++  }
++
++  // Compute degree for each node
++  const degree = {};
++  for (const n of nodes) {
++    degree[n.id] = (adj[n.id] || []).reduce((sum, nb) => sum + (weights[n.id][nb] || 1), 0);
++  }
++
++  // Iterative optimization (up to 20 passes)
++  let changed = true;
++  let maxPasses = 20;
++  while (changed && maxPasses-- > 0) {
++    changed = false;
++    for (const n of nodes) {
++      const curComm = community[n.id];
++      const neighbors = adj[n.id] || [];
++      if (!neighbors.length) continue;
++
++      // Compute weight from n to its current community
++      const commWeights = {};
++      for (const nb of neighbors) {
++        const w = weights[n.id][nb] || 1;
++        const nbComm = community[nb];
++        commWeights[nbComm] = (commWeights[nbComm] || 0) + w;
++      }
++
++      // Compute modularity gain for moving to each neighbor's community
++      let bestComm = curComm;
++      let bestGain = 0;
++      const ki = degree[n.id];
++
++      for (const nb of neighbors) {
++        const targetComm = community[nb];
++        if (targetComm === curComm) continue;
++
++        // Sum of total degree in target community
++        let totTarget = 0;
++        for (const other of nodes) {
++          if (community[other.id] === targetComm) totTarget += degree[other.id];
++        }
++
++        const sigmaTot = totTarget;
++        const kiIn = commWeights[targetComm] || 0;
++        const gain = 2 * kiIn - (ki * sigmaTot) / (m || 1);
++
++        if (gain > bestGain) {
++          bestGain = gain;
++          bestComm = targetComm;
++        }
++      }
++
++      if (bestComm !== curComm) {
++        community[n.id] = bestComm;
++        changed = true;
++      }
++    }
++  }
++
++  // Assign community IDs and compress
++  const commMap = {};
++  let commIndex = 0;
++  const result = [];
++  for (const n of nodes) {
++    const cid = community[n.id];
++    if (commMap[cid] === undefined) commMap[cid] = commIndex++;
++    result.push({
++      id: n.id,
++      label: n.label,
++      type: n.type,
++      community: commMap[cid],
++    });
++  }
++  return result;
++}
++
++// ─── Graph export (GraphML) ────────────────────────────────────────────────
++function exportGraphML(g, cwd) {
++  const nodes = g.nodes || [];
++  const edges = g.edges || [];
++  const commInfo = detectCommunities(g);
++  const commById = {};
++  for (const ci of commInfo) commById[ci.id] = ci.community;
++
++  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
++  xml += `<graphml xmlns="http://graphml.graphdrawing.org/xmlns">\n`;
++  xml += `  <key id="label" for="node" attr.name="label" attr.type="string"/>\n`;
++  xml += `  <key id="type" for="node" attr.name="type" attr.type="string"/>\n`;
++  xml += `  <key id="community" for="node" attr.name="community" attr.type="int"/>\n`;
++  xml += `  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>\n`;
++  xml += `  <key id="confidence" for="edge" attr.name="confidence" attr.type="string"/>\n`;
++  xml += `  <graph id="G" edgedefault="undirected">\n`;
++  for (const n of nodes) {
++    const comm = commById[n.id] !== undefined ? commById[n.id] : -1;
++    xml += `    <node id="${escXml(n.id)}">\n`;
++    xml += `      <data key="label">${escXml(n.label)}</data>\n`;
++    xml += `      <data key="type">${escXml(n.type)}</data>\n`;
++    xml += `      <data key="community">${comm}</data>\n`;
++    xml += `    </node>\n`;
++  }
++  for (const e of edges) {
++    xml += `    <edge source="${escXml(e.source)}" target="${escXml(e.target)}">\n`;
++    xml += `      <data key="relation">${escXml(e.relation)}</data>\n`;
++    xml += `      <data key="confidence">${escXml(e.confidence)}</data>\n`;
++    xml += `    </edge>\n`;
++  }
++  xml += `  </graph>\n</graphml>\n`;
++  const outPath = join(cwd, "memory", "graph.graphml");
++  wr(outPath, xml);
++  return outPath;
++}
++
++function escXml(s) {
++  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
++}
++
+ async function main() {
+   const a = process.argv.slice(2);
+   if (a[0] === "--version" || a[0] === "-v") {
+@@ -1902,6 +2473,7 @@ async function main() {
+     const nd = od(mp(c, SF));
+     eg(c);
+     const imported = importLegacyMarkdown(nd, c);
++    const importedGraph = importLegacyGraphFile(nd, c);
+     console.log("Scanning repo...");
+     const s = await sc(c);
+     if (s.me) {
+@@ -1917,20 +2489,15 @@ async function main() {
+       });
+     }
+     if (s.no.length) {
+-      const g = rg(mp(c, GF));
+-      for (const n of s.no) if (!g.nodes.some((gg) => gg.id === n.id)) g.nodes.push(n);
+-      for (const e of s.ed) {
+-        if (!g.edges.some((gg) => gg.source === e.source && gg.target === e.target && gg.relation === e.relation)) {
+-          g.edges.push(e);
+-        }
+-      }
+-      wg(mp(c, GF), g);
++      for (const n of s.no) upsertGraphNode(nd, n);
++      for (const e of s.ed) upsertGraphEdge(nd, e);
+     }
++    syncGraphProjection(nd, c);
+     refreshProjections(nd, c);
+     nd.close();
+     await installHooks(c);
+     console.log(
+-      `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}`
++      `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`
+     );
+     return;
+   }
+@@ -1942,6 +2509,7 @@ async function main() {
+   );
+   if (needsProjectMemory) ensureMemoryReady(c);
+   const d = needsProjectMemory ? od(mp(c, SF)) : null;
++  if (d) ensureGraphStoreReady(d, c);
+ 
+   if (cmd === "watch") {
+     const { flags } = parseArgs(a.slice(1));
+@@ -2178,6 +2746,26 @@ async function main() {
+     return;
+   }
+ 
++  if (cmd === "explain") {
++    const { flags, rest } = parseArgs(a.slice(1));
++    const task = rest.join(" ").trim();
++    if (!task) {
++      console.log("Usage: cm explain <task> [--limit n] [--mode keyword|hybrid|semantic]");
++      process.exit(1);
++    }
++    const limit = Math.max(1, Number.parseInt(flags.limit || "5", 10) || 5);
++    const mode = flags.mode || "hybrid";
++    if (!["keyword", "hybrid", "semantic"].includes(mode)) {
++      console.log("--mode must be: keyword, hybrid, or semantic");
++      process.exit(1);
++    }
++    recallMemories(d, c, task, 3, limit, mode, { explain: true }).then((recalled) => {
++      console.log(renderRecall(task, 3, recalled));
++      d.close();
++    });
++    return;
++  }
++
+   if (cmd === "project") {
+     refreshProjections(d, c);
+     console.log("Regenerated MEMORY.md and USER.md.");
+@@ -2191,29 +2779,26 @@ async function main() {
+   }
+ 
+   if (cmd.startsWith("g")) {
+-    if (!["ga", "ge", "gn", "gp", "gs", "gi"].includes(cmd)) {
++    if (!["ga", "ge", "gn", "gp", "gs", "gi", "gc", "gx"].includes(cmd)) {
+       console.log("Unknown graph command");
+       d.close();
+       return;
+     }
+-    if (!existsSync(mp(c, GF))) {
+-      console.log("No graph. Run: cm init");
+-      process.exit(1);
+-    }
+-    const g = rg(mp(c, GF));
++    const g = loadGraphFromStore(d);
+     const nw = nowIso();
+     if (cmd === "ga" && a[1] && a[2] && a[3]) {
+       const id = a[1];
+       const lb = a[2];
+       const tp = a[3];
+-      if (g.nodes.some((n) => n.id === id)) {
++      if (getStmt(d, "SELECT id FROM graph_nodes WHERE id = ?", [id])) {
+         console.log(`"${id}" exists.`);
+         d.close();
+         return;
+       }
+-      g.nodes.push({ id, label: lb, type: tp, metadata: {}, created: nw });
+-      wg(mp(c, GF), g);
+-      console.log(`Added: ${id} (${lb}) [${tp}]\n${g.nodes.length} nodes, ${g.edges.length} edges`);
++      upsertGraphNode(d, { id, label: lb, type: tp, metadata: {}, created: nw });
++      syncGraphProjection(d, c);
++      const counts = getStmt(d, "SELECT (SELECT COUNT(*) FROM graph_nodes) AS nodes, (SELECT COUNT(*) FROM graph_edges) AS edges");
++      console.log(`Added: ${id} (${lb}) [${tp}]\n${counts.nodes} nodes, ${counts.edges} edges`);
+       d.close();
+       return;
+     }
+@@ -2222,24 +2807,29 @@ async function main() {
+       const tg = a[2];
+       const rl = a[3];
+       const cf = a[4] || "EXTRACTED";
+-      if (!g.nodes.some((n) => n.id === sr)) {
++      if (!getStmt(d, "SELECT id FROM graph_nodes WHERE id = ?", [sr])) {
+         console.log(`Source "${sr}" not found.`);
+         d.close();
+         return;
+       }
+-      if (!g.nodes.some((n) => n.id === tg)) {
++      if (!getStmt(d, "SELECT id FROM graph_nodes WHERE id = ?", [tg])) {
+         console.log(`Target "${tg}" not found.`);
+         d.close();
+         return;
+       }
+-      if (g.edges.some((e) => e.source === sr && e.target === tg && e.relation === rl)) {
++      if (getStmt(
++        d,
++        "SELECT source_id FROM graph_edges WHERE source_id = ? AND target_id = ? AND relation = ?",
++        [sr, tg, rl]
++      )) {
+         console.log("Edge exists.");
+         d.close();
+         return;
+       }
+-      g.edges.push({ source: sr, target: tg, relation: rl, confidence: cf, created: nw });
+-      wg(mp(c, GF), g);
+-      console.log(`${sr} --[${rl}]--> ${tg} [${cf}]\n${g.nodes.length} nodes, ${g.edges.length} edges`);
++      upsertGraphEdge(d, { source: sr, target: tg, relation: rl, confidence: cf, created: nw });
++      syncGraphProjection(d, c);
++      const counts = getStmt(d, "SELECT (SELECT COUNT(*) FROM graph_nodes) AS nodes, (SELECT COUNT(*) FROM graph_edges) AS edges");
++      console.log(`${sr} --[${rl}]--> ${tg} [${cf}]\n${counts.nodes} nodes, ${counts.edges} edges`);
+       d.close();
+       return;
+     }
+@@ -2277,47 +2867,108 @@ async function main() {
+         console.log("Usage: cm gp <from> <to>");
+         process.exit(1);
+       }
++      const weighted = a.includes("--dijkstra");
+       const adj = {};
+       for (const n of g.nodes) adj[n.id] = [];
+       for (const e of g.edges) {
+-        if (adj[e.source]) adj[e.source].push({ node: e.target, edge: e });
+-        if (adj[e.target]) adj[e.target].push({ node: e.source, edge: e });
++        const w = typeof e.weight === "number" ? e.weight : 1;
++        if (adj[e.source]) adj[e.source].push({ node: e.target, edge: e, weight: w });
++        if (adj[e.target]) adj[e.target].push({ node: e.source, edge: e, weight: w });
+       }
+       if (!adj[fr] || !adj[to]) {
+         console.log(`"${adj[fr] ? to : fr}" not found.`);
+         d.close();
+         return;
+       }
+-      const vs = new Set([fr]);
+-      const qq = [{ node: fr, path: [] }];
+-      let fd = null;
+-      while (qq.length) {
+-        const cr = qq.shift();
+-        if (cr.node === to) {
+-          fd = cr.path;
+-          break;
++      const st = g.nodes.find((x) => x.id === fr);
++      const en = g.nodes.find((x) => x.id === to);
++
++      if (weighted) {
++        // Dijkstra weighted shortest path
++        const dist = {}; const prev = {}; const visited = new Set();
++        for (const n of g.nodes) dist[n.id] = Infinity;
++        dist[fr] = 0;
++        while (visited.size < g.nodes.length) {
++          let current = null; let minD = Infinity;
++          for (const n of g.nodes) {
++            if (!visited.has(n.id) && dist[n.id] < minD) { minD = dist[n.id]; current = n.id; }
++          }
++          if (!current || current === to) break;
++          visited.add(current);
++          for (const nb of adj[current] || []) {
++            if (!visited.has(nb.node)) {
++              const alt = dist[current] + (1 / (nb.weight || 1));
++              if (alt < dist[nb.node]) { dist[nb.node] = alt; prev[nb.node] = { node: current, edge: nb.edge }; }
++            }
++          }
++        }
++        if (dist[to] === Infinity) {
++          console.log(`No path "${st?.label || fr}" -> "${en?.label || to}".`);
++          d.close(); return;
+         }
+-        for (const nb of adj[cr.node] || []) {
+-          if (!vs.has(nb.node)) {
+-            vs.add(nb.node);
+-            const n = g.nodes.find((x) => x.id === nb.node);
+-            qq.push({ node: nb.node, path: [...cr.path, { label: n?.label || nb.node, edge: nb.edge.relation }] });
++        const path = []; let cur = to;
++        while (cur && prev[cur]) { path.unshift({ label: g.nodes.find(x => x.id === cur)?.label || cur, edge: prev[cur].edge.relation }); cur = prev[cur].node; }
++        console.log(`${st?.label || fr} -> ${en?.label || to} (weighted, cost=${dist[to].toFixed(2)}):`);
++        for (const p of path) console.log(`  --${p.edge}--> ${p.label}`);
++      } else {
++        // BFS (original)
++        const vs = new Set([fr]);
++        const qq = [{ node: fr, path: [] }];
++        let fd = null;
++        while (qq.length) {
++          const cr = qq.shift();
++          if (cr.node === to) { fd = cr.path; break; }
++          for (const nb of adj[cr.node] || []) {
++            if (!vs.has(nb.node)) {
++              vs.add(nb.node);
++              const n = g.nodes.find((x) => x.id === nb.node);
++              qq.push({ node: nb.node, path: [...cr.path, { label: n?.label || nb.node, edge: nb.edge.relation }] });
++            }
+           }
+         }
++        if (!fd) { console.log(`No path "${fr}" -> "${to}".`); d.close(); return; }
++        console.log(`${st?.label || fr} -> ${fd.length} hops:`);
++        for (const p of fd) console.log(`  --${p.edge}--> ${p.label}`);
+       }
+-      if (!fd) {
+-        console.log(`No path "${fr}" -> "${to}".`);
+-        d.close();
+-        return;
++      d.close();
++      return;
++    }
++    if (cmd === "gc") {
++      // Graph communities
++      const communities = detectCommunities(g);
++      const commMap = {};
++      for (const ci of communities) {
++        if (!commMap[ci.community]) commMap[ci.community] = [];
++        commMap[ci.community].push(ci.label);
+       }
+-      const st = g.nodes.find((x) => x.id === fr);
+-      console.log(`${st?.label || fr} -> ${fd.length} hops:`);
+-      for (const p of fd) console.log(`  --${p.edge}--> ${p.label}`);
++      console.log(`${Object.keys(commMap).length} communities:`);
++      for (const [cid, members] of Object.entries(commMap)) {
++        const size = members.length;
++        const names = size <= 5 ? members.join(", ") : members.slice(0, 4).join(", ") + `, ... (${size} total)`;
++        console.log(`  Community ${cid}: [${size}] ${names}`);
++      }
++      // Store communities in graph.json metadata
++      const nodeComm = {};
++      for (const ci of communities) nodeComm[ci.id] = ci.community;
++      const updatedNodes = (g.nodes || []).map(n => ({
++        ...n,
++        metadata: { ...n.metadata, community: nodeComm[n.id] !== undefined ? nodeComm[n.id] : -1 }
++      }));
++      wg(mp(c, GF), { nodes: updatedNodes, edges: g.edges || [] });
++      syncGraphProjection(d, c);
++      d.close();
++      return;
++    }
++    if (cmd === "gx") {
++      // Graph export to GraphML
++      const out = exportGraphML(g, c);
++      console.log(`Exported to ${out}`);
+       d.close();
+       return;
+     }
+     if (cmd === "gs") console.log(`${g.nodes.length} nodes, ${g.edges.length} edges`);
+     if (cmd === "gi") console.log(gh(g));
++    if (cmd === "gs" || cmd === "gi") syncGraphProjection(d, c);
+     d.close();
+     return;
+   }
