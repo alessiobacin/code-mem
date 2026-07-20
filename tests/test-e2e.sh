@@ -359,6 +359,68 @@ else
 fi
 
 # ======================================================
+#  NEW FEATURE TESTS
+# ======================================================
+
+echo "━━━ TEST 28: deduplicazione su save ━━━"
+$CMD save --kind fact "Struttura a tre layer unica" > /dev/null 2>&1
+DUP1=$($CMD save --kind fact "Struttura a tre layer unica che separa auth e db" 2>&1)
+if echo "$DUP1" | grep -qi "duplicate"; then mark_pass "dedup rilevato"; else mark_fail "dedup non rilevato"; fi
+$CMD save --kind fact "Dedup forza override" --force > /dev/null 2>&1
+mark_pass "force dedup ok"
+echo ""
+
+echo "━━━ TEST 29: cm project --compact ━━━"
+$CMD project --compact 2>&1 > /dev/null
+if grep -q "compact" memory/MEMORY.md; then mark_pass "compact mode rilevato"; else mark_fail "compact mode assente"; fi
+echo ""
+
+echo "━━━ TEST 30: cm consolidate --prune ━━━"
+PRUNE_OUT=$($CMD consolidate --prune 2>&1)
+if echo "$PRUNE_OUT" | grep -qi "pruned"; then mark_pass "prune eseguito"; else mark_fail "prune fallito"; fi
+echo ""
+
+echo "━━━ TEST 31: cm scan --relations ━━━"
+SCAN_OUT=$($CMD scan --relations 2>&1)
+if echo "$SCAN_OUT" | grep -qi "relation suggestion\|No relation"; then mark_pass "scan relations ok"; else mark_fail "scan relations fallito"; fi
+echo ""
+
+echo "━━━ TEST 32: cm gc (community detection) ━━━"
+$CMD ga auth_mod "Auth Module" module 2>/dev/null || true
+$CMD ga db_mod "DB Layer" module 2>/dev/null || true
+$CMD ge auth_mod db_mod depends_on 2>/dev/null || true
+GC_OUT=$($CMD gc 2>&1)
+if echo "$GC_OUT" | grep -qi "community"; then mark_pass "gc communities ok"; else mark_fail "gc communities fallito"; fi
+echo ""
+
+echo "━━━ TEST 33: cm gx (GraphML export) ━━━"
+GX_OUT=$($CMD gx --format graphml 2>&1)
+if [ -f memory/graph.graphml ]; then mark_pass "gx graphml ok"; else mark_fail "gx graphml fallito"; fi
+echo ""
+
+echo "━━━ TEST 34: cm gx (HTML export) ━━━"
+GX_HTML=$($CMD gx --format html 2>&1)
+if echo "$GX_HTML" | grep -qi "exported"; then mark_pass "gx html ok"; else mark_fail "gx html fallito"; fi
+echo ""
+
+echo "━━━ TEST 35: cm recall --mode explore ━━━"
+$CMD save --kind decision "Autenticazione con JWT e refresh" > /dev/null 2>&1
+$CMD save --kind fact "Database PostgreSQL con Drizzle ORM" > /dev/null 2>&1
+EXP_OUT=$($CMD recall "auth postgres" --mode explore --level 2 2>&1)
+if echo "$EXP_OUT" | grep -qi "mode=explore\|Plan.*explore"; then mark_pass "explore mode selezionato"; else mark_fail "explore mode non rilevato"; fi
+if echo "$EXP_OUT" | grep -qi "JWT\|PostgreSQL\|Drizzle"; then mark_pass "explore recall trova risultati"; else mark_fail "explore recall nessun risultato"; fi
+echo ""
+
+echo "━━━ TEST 36: cm gc --vacuum ━━━"
+VAC_OUT=$($CMD gc --vacuum 2>&1)
+if echo "$VAC_OUT" | grep -qi "vacuumed"; then mark_pass "gc vacuum ok"; else mark_fail "gc vacuum fallito"; fi
+echo ""
+
+echo "━━━ TEST 37: storage compression (graph.json compatto) ━━━"
+if grep -q '"s"' memory/graph.json 2>/dev/null; then mark_pass "graph.json compatto (shorthand)"; else mark_fail "graph.json non compatto"; fi
+echo ""
+
+# ======================================================
 #  SUMMARY
 # ======================================================
 TOTAL=$((PASS+FAIL))

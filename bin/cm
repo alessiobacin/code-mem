@@ -216,9 +216,29 @@ function pe(c) {
     .filter(Boolean);
 }
 
-function rg(p) {
+function rg(p, normalizeLegacy = true) {
   try {
-    return JSON.parse(readFileSync(p, "utf-8"));
+    const raw = JSON.parse(readFileSync(p, "utf-8"));
+    if (!normalizeLegacy) return raw;
+    // Handle compressed format (shorthand keys s/t/r/c)
+    if (raw.nodes && raw.nodes.length && !raw.nodes[0].id && raw.nodes[0]._id !== undefined) return raw;
+    if (raw.edges && raw.edges.length && raw.edges[0].s) {
+      raw.edges = raw.edges.map((e) => ({
+        source: e.s || e.source,
+        target: e.t || e.target,
+        relation: e.r || e.relation,
+        confidence: e.c || e.confidence,
+      }));
+    }
+    if (raw.nodes && raw.nodes.length && raw.nodes[0].c !== undefined) {
+      raw.nodes = raw.nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        type: n.type,
+        metadata: n.c !== undefined ? { community: n.c } : {},
+      }));
+    }
+    return raw;
   } catch {
     return { nodes: [], edges: [] };
   }
@@ -226,7 +246,22 @@ function rg(p) {
 
 function wg(p, d) {
   mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, JSON.stringify(d), "utf-8");
+  // Strip per-node metadata from graph.json to save space; keep only community IDs
+  const cleaned = { nodes: [], edges: [] };
+  if (d.nodes) {
+    for (const n of d.nodes) {
+      const entry = { id: n.id, label: n.label || n.type || "", type: n.type || "" };
+      if (n.metadata && n.metadata.community !== undefined) entry.c = n.metadata.community;
+      cleaned.nodes.push(entry);
+    }
+  }
+  if (d.edges) {
+    for (const e of d.edges) {
+      const entry = { s: e.source || e.source_id, t: e.target || e.target_id, r: e.relation || "", c: e.confidence || "" };
+      cleaned.edges.push(entry);
+    }
+  }
+  writeFileSync(p, JSON.stringify(cleaned), "utf-8");
 }
 
 function nowIso() {
@@ -1148,11 +1183,40 @@ function upsertMemoryItem(d, item) {
   return { id, created: true };
 }
 
+function findNearDuplicate(d, body, kind) {
+  // Fuzzy match: check body similarity via trigram cosine similarity
+  if (!body) return null;
+  const newVec = trigramEmbed(body);
+  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at DESC LIMIT 50");
+  for (const row of rows) {
+    if (kind && row.kind !== kind) continue;
+    let existingVec = null;
+    const existingRow = getStmt(d, "SELECT vector FROM memory_vectors WHERE memory_id=? AND model='trigram'", [row.id]);
+    if (existingRow && existingRow.vector) {
+      existingVec = bufferToVector(existingRow.vector);
+    } else {
+      // Compute on the fly if no stored vector
+      const text = `${row.title} ${row.body} ${row.summary || ""}`.toLowerCase();
+      existingVec = trigramEmbed(text);
+    }
+    const sim = cosineSimilarity(newVec, existingVec);
+    if (sim > 0.65) return row;
+  }
+  return null;
+}
+
 function saveMemory(d, cwd, input) {
   const body = String(input.body || "").trim();
   if (!body) {
     console.log("text required");
     process.exit(1);
+  }
+  // Fuzzy dedup unless --force
+  if (!input.force) {
+    const dup = findNearDuplicate(d, body, input.kind);
+    if (dup) {
+      return { id: dup.id, created: false, duplicate: true, existing: dup };
+    }
   }
   const title = String(input.title || projectTitle(body)).trim();
   const row = upsertMemoryItem(d, {
@@ -1174,6 +1238,22 @@ function saveMemory(d, cwd, input) {
   });
   refreshProjections(d, cwd);
   return row;
+}
+
+function saveMemorySemanticDedup(d, cwd, input) {
+  // Full semantic dedup via embedding + cosine similarity
+  // Used by save commands; triggers embedding if not already stored
+  const body = String(input.body || "").trim();
+  if (!body) throw new Error("text required");
+  const existing = findNearDuplicate(d, body, input.kind);
+  if (existing && !input.force) return { id: existing.id, created: false, duplicate: true, existing };
+  const result = saveMemory(d, cwd, input);
+  // Trigger vectorization for future semantic matching
+  const text = `${result.title || ""} ${body} ${input.summary || ""}`.trim();
+  const useOllama = checkOllama();
+  if (useOllama) { embedText(d, result.id, null, text).catch(() => {}); }
+  else { saveTrigramVector(d, result.id, text); }
+  return result;
 }
 
 function saveMemoryToStore(d, cwd, input) {
@@ -1257,15 +1337,17 @@ function updateFtsRow(d, row) {
   try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [row.id]); } catch {}
 }
 
-function refreshProjections(d, cwd) {
+function refreshProjections(d, cwd, compact) {
+  const filterAge = compact ? ` AND julianday('now') - julianday(mi.updated_at) < 30` : "";
+  const filterConf = compact ? ' AND mi.confidence >= 0.7' : "";
   const sections = [];
   for (const section of SECTION_CONFIG) {
     const placeholders = section.kinds.map(() => "?").join(",");
     const rows = listMemoryRows(
       d,
-      `WHERE mi.status='active' AND mi.kind IN (${placeholders}) AND mi.layer <> 'user'`,
+      `WHERE mi.status='active' AND mi.kind IN (${placeholders}) AND mi.layer <> 'user'${filterAge}${filterConf}`,
       section.kinds,
-      "ORDER BY mi.salience DESC, mi.updated_at DESC LIMIT " + section.limit
+      "ORDER BY mi.salience DESC, mi.updated_at DESC LIMIT " + (compact ? Math.min(section.limit, 4) : section.limit)
     );
     if (!rows.length) continue;
     sections.push(`## ${section.title}`);
@@ -1281,7 +1363,8 @@ function refreshProjections(d, cwd) {
   }
   const memoryDoc =
     "# Project Memory\n\n" +
-    "Projection generated from `state.db`. Edit with `cm save`, `cm archive`, `cm consolidate`, or `cm project`.\n\n" +
+    "Projection generated from `state.db`. Edit with `cm save`, `cm archive`, `cm consolidate`, or `cm project`." +
+    (compact ? " (compact view, confidence>=0.7, recency<30d)\n\n" : "\n\n") +
     (sections.length ? sections.join("\n") : "_No project memories yet._\n");
   wr(mp(cwd, MF), trimDoc(memoryDoc, ML));
 
@@ -1289,7 +1372,7 @@ function refreshProjections(d, cwd) {
     d,
     "WHERE mi.status='active' AND mi.kind='preference'",
     [],
-    "ORDER BY mi.salience DESC, mi.updated_at DESC LIMIT 12"
+    "ORDER BY mi.salience DESC, mi.updated_at DESC LIMIT " + (compact ? "6" : "12")
   );
   const userDoc =
     "# User Profile\n\n" +
@@ -1725,26 +1808,30 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
   plan.mode = mode || "hybrid";
   plan.explain = Boolean(options.explain);
   const queryWords = tokenizeQuery(task);
-  // Query project DB first (fast path — skip global if project has enough results)
-  const projectGraphTerms = level <= 1 ? [] : expandGraphTerms(d, queryWords);
+  const isExplore = mode === "explore";
+  // Explore mode: expand graph terms more aggressively
+  const exploreDepth = isExplore ? 3 : level;
+  const projectGraphTerms = exploreDepth <= 1 ? [] : expandGraphTerms(d, queryWords);
   plan.graphTerms = projectGraphTerms;
-  const projectSeedIds = queryMemoryCandidates(d, queryWords.concat(projectGraphTerms), 24);
-  const projectLinkMap = level <= 1 ? new Map() : expandLinkedCandidateMap(d, projectSeedIds, 2, 48);
+  const projectSeedIds = queryMemoryCandidates(d, queryWords.concat(projectGraphTerms), 32);
+  const linkDepth = isExplore ? 3 : (level <= 1 ? 2 : 2);
+  const linkMax = isExplore ? 80 : 48;
+  const projectLinkMap = exploreDepth <= 1 ? new Map() : expandLinkedCandidateMap(d, projectSeedIds, linkDepth, linkMax);
   const projectRows = uniqueRowsById(
     loadRowsByIds(d, Array.from(projectLinkMap.keys()), "project")
       .concat(loadCandidateRows(d, queryWords.concat(projectGraphTerms), "project", 80))
   );
-  // Only open global DB if project returned insufficient results
+  // Always open global DB in explore mode for broader reach
   let globalDb = null;
   let globalRows = [];
   let globalLinkMap = new Map();
-  if (projectRows.length < limit) {
+  if (projectRows.length < limit || isExplore) {
     globalDb = od(globalDbPath());
-    const globalGraphTerms = level <= 1 ? [] : expandGraphTerms(globalDb, queryWords);
-    const mergedTerms = Array.from(new Set(projectGraphTerms.concat(globalGraphTerms))).slice(0, 16);
+    const globalGraphTerms = exploreDepth <= 1 ? [] : expandGraphTerms(globalDb, queryWords);
+    const mergedTerms = Array.from(new Set(projectGraphTerms.concat(globalGraphTerms))).slice(0, 20);
     if (mergedTerms.length > (plan.graphTerms || []).length) plan.graphTerms = mergedTerms;
-    const globalSeedIds = queryMemoryCandidates(globalDb, queryWords.concat(globalGraphTerms), 24);
-    globalLinkMap = level <= 1 ? new Map() : expandLinkedCandidateMap(globalDb, globalSeedIds, 2, 48);
+    const globalSeedIds = queryMemoryCandidates(globalDb, queryWords.concat(globalGraphTerms), 32);
+    globalLinkMap = exploreDepth <= 1 ? new Map() : expandLinkedCandidateMap(globalDb, globalSeedIds, linkDepth, linkMax);
     globalRows = uniqueRowsById(
       loadRowsByIds(globalDb, Array.from(globalLinkMap.keys()), "global")
         .concat(loadCandidateRows(globalDb, queryWords.concat(globalGraphTerms), "global", 80))
@@ -1758,8 +1845,7 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
   const useSemantic = plan.mode !== "keyword" && task && task.trim().length > 0;
   let taskEmbedding = null;
   if (useSemantic) {
-    // Level 1-2 use fast trigram; level 3+ uses Ollama for deeper semantic matching
-    if (level > 2 && checkOllama()) {
+    if (level > 2 && checkOllama() && !isExplore) {
       taskEmbedding = await computeEmbedding(task).catch(() => trigramEmbed(task));
     } else {
       taskEmbedding = trigramEmbed(task);
@@ -1775,7 +1861,6 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
         const sv = bufferToVector(vecRow.vector);
         semanticScore = cosineSimilarity(taskEmbedding, sv);
       } else {
-        // no stored vector — compute trigram on-the-fly
         const text = `${row.title} ${row.body} ${row.summary || ""}`;
         const memVec = trigramEmbed(text);
         semanticScore = cosineSimilarity(taskEmbedding, memVec);
@@ -1784,6 +1869,13 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
     const scores = scoreMemory(row, plan, task, cwd, level, semanticScore);
     const linkMap = row._scope === "global" ? globalLinkMap : projectLinkMap;
     const linkPath = materializeLinkPath(linkMap, row.id);
+    // Explore mode: boost graph link proximity and concept coverage
+    if (isExplore) {
+      const conceptBoost = scores.conceptScore > 0.2 ? 0.15 : 0;
+      const linkBoost = linkPath ? Math.min(0.2, (linkPath.length || 0) * 0.05) : 0;
+      const graphBoost = plan.graphTerms?.length ? scores.graphConceptScore * 0.2 : 0;
+      scores.score += conceptBoost + linkBoost + graphBoost;
+    }
     ranked.push({ row, ...scores });
     ranked[ranked.length - 1].linkPath = linkPath;
   }
@@ -2044,6 +2136,45 @@ async function sc(c) {
   return { me, no, ed, ts };
 }
 
+function scanCodeRelations(cwd) {
+  // Scan .ts/.tsx/.js/.jsx files for import/dependency relationships
+  const suggestions = [];
+  const files = [];
+  function crawl(dir, depth) {
+    if (depth > 4) return;
+    let entries;
+    try { entries = readdirSync(dir); } catch { return; }
+    for (const en of entries) {
+      if (en.startsWith(".") || en === "node_modules" || en === "dist" || en === "build" || en === "memory") continue;
+      const full = join(dir, en);
+      let s;
+      try { s = statSync(full); } catch { continue; }
+      if (s.isDirectory()) crawl(full, depth + 1);
+      else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(en)) files.push(full);
+    }
+  }
+  crawl(cwd, 0);
+  const importRe = /(?:from\s+["']([^"']+)["']|require\(["']([^"']+)["']\)|import\s+["']([^"']+)["'])/g;
+  const seenEdges = new Set();
+  for (const file of files) {
+    let content;
+    try { content = readFileSync(file, "utf-8"); } catch { continue; }
+    const fileBase = basename(file).replace(/\.[^.]+$/, "");
+    let match;
+    importRe.lastIndex = 0;
+    while ((match = importRe.exec(content)) !== null) {
+      const target = (match[1] || match[2] || match[3] || "").split("/")[0];
+      if (!target || target === "." || target.startsWith(".") || target.length < 2) continue;
+      const edgeKey = `${fileBase}|${target}`;
+      if (!seenEdges.has(edgeKey)) {
+        seenEdges.add(edgeKey);
+        suggestions.push({ source: fileBase, target, relation: "depends_on", file: file.replace(cwd, ".") });
+      }
+    }
+  }
+  return suggestions;
+}
+
 function setupSkillText() {
   return `---
 name: cm
@@ -2288,6 +2419,21 @@ async function consolidateMemories(d, cwd) {
   // VACUUM to reclaim space after consolidation
   try { runStmt(d, "VACUUM"); } catch {}
   console.log(`Consolidated ${promoted} item(s).${vecInfo}`);
+}
+
+function pruneMemories(d) {
+  const rows = listMemoryRows(
+    d,
+    "WHERE mi.status='active' AND mi.confidence < 0.3 AND julianday('now') - julianday(mi.updated_at) > 90",
+    [],
+    "ORDER BY mi.updated_at ASC"
+  );
+  for (const row of rows) {
+    try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [row.id]); } catch {}
+    runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), row.id]);
+  }
+  try { runStmt(d, "VACUUM"); } catch {}
+  return rows.length;
 }
 
 function acquireLock(cwd) {
@@ -2765,16 +2911,25 @@ async function main() {
       tags: flags.tag ? String(flags.tag).split(",").map((t) => t.trim()).filter(Boolean) : [],
       files: flags.file ? String(flags.file).split(",").map((t) => t.trim()).filter(Boolean) : [],
       source: "manual",
+      force: Boolean(flags.force),
     };
     if (flags.global) {
       const gd = od(globalDbPath());
-      const result = saveMemoryToStore(gd, c, payload);
-      const snapshot = saveGlobalSnapshot(gd, result.id);
-      console.log(`${result.created ? "Saved" : "Already exists"} globally: ${result.id} (${snapshot})`);
+      const result = saveMemory(gd, c, payload);
+      if (result.duplicate) {
+        console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
+      } else {
+        const snapshot = saveGlobalSnapshot(gd, result.id);
+        console.log(`${result.created ? "Saved" : "Already exists"} globally: ${result.id} (${snapshot})`);
+      }
       gd.close();
     } else {
       const result = saveMemory(d, c, payload);
-      console.log(`${result.created ? "Saved" : "Already exists"}: ${result.id}`);
+      if (result.duplicate) {
+        console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
+      } else {
+        console.log(`${result.created ? "Saved" : "Already exists"}: ${result.id}`);
+      }
       d.close();
     }
     return;
@@ -2934,8 +3089,8 @@ async function main() {
     const level = Math.max(1, Math.min(3, Number.parseInt(flags.level || "2", 10) || 2));
     const limit = Math.max(1, Number.parseInt(flags.limit || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT);
     const mode = flags.mode || "hybrid";
-    if (!["keyword", "hybrid", "semantic"].includes(mode)) {
-      console.log("--mode must be: keyword, hybrid, or semantic");
+    if (!["keyword", "hybrid", "semantic", "explore"].includes(mode)) {
+      console.log("--mode must be: keyword, hybrid, semantic, or explore");
       process.exit(1);
     }
     recallMemories(d, c, task, level, limit, mode).then((recalled) => {
@@ -2967,20 +3122,40 @@ async function main() {
   }
 
   if (cmd === "project") {
-    refreshProjections(d, c);
-    console.log("Regenerated MEMORY.md and USER.md.");
+    const { flags } = parseArgs(a.slice(1));
+    refreshProjections(d, c, Boolean(flags.compact));
+    console.log("Regenerated MEMORY.md and USER.md." + (flags.compact ? " (compact)" : ""));
     d.close();
     return;
   }
 
   if (cmd === "consolidate") {
+    const { flags } = parseArgs(a.slice(1));
+    if (flags.prune) {
+      const pruned = pruneMemories(d);
+      if (pruned > 0) refreshProjections(d, c);
+      console.log(`Pruned ${pruned} item(s) (confidence<0.3, age>90d).`);
+      d.close();
+      return;
+    }
     consolidateMemories(d, c).then(() => { d.close(); });
     return;
   }
 
   if (cmd.startsWith("g")) {
+    const { flags } = parseArgs(a.slice(1));
     if (!["ga", "ge", "gn", "gp", "gs", "gi", "gc", "gx"].includes(cmd)) {
       console.log("Unknown graph command");
+      d.close();
+      return;
+    }
+    // gc --vacuum reclaims graph space (VACUUM on state.db)
+    if (cmd === "gc" && flags.vacuum) {
+      try {
+        runStmt(d, "DELETE FROM graph_nodes WHERE id NOT IN (SELECT DISTINCT source_id FROM graph_edges UNION SELECT DISTINCT target_id FROM graph_edges)");
+        runStmt(d, "VACUUM");
+        console.log("Graph vacuumed: orphan nodes removed, space reclaimed.");
+      } catch (e) { console.log(`Vacuum error: ${e.message}`); }
       d.close();
       return;
     }
@@ -3184,6 +3359,27 @@ async function main() {
     if (cmd === "gs") console.log(`${g.nodes.length} nodes, ${g.edges.length} edges`);
     if (cmd === "gi") console.log(gh(g));
     if (cmd === "gs" || cmd === "gi") syncGraphProjection(d, c);
+    d.close();
+    return;
+  }
+
+  if (cmd === "scan") {
+    const { flags } = parseArgs(a.slice(1));
+    if (flags.relations) {
+      const suggestions = scanCodeRelations(c);
+      if (!suggestions.length) {
+        console.log("No relation suggestions found.");
+      } else {
+        console.log(`Found ${suggestions.length} relation suggestion(s):`);
+        for (const s of suggestions) {
+          console.log(`  ${s.source} --[${s.relation}]--> ${s.target} (from ${s.file})`);
+        }
+        console.log("Run: cm ge <source> <target> <relation> to add any.");
+      }
+      d.close();
+      return;
+    }
+    console.log("Usage: cm scan --relations");
     d.close();
     return;
   }
