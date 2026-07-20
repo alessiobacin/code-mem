@@ -420,6 +420,53 @@ echo "━━━ TEST 37: storage compression (graph.json compatto) ━━━"
 if grep -q '"s"' memory/graph.json 2>/dev/null; then mark_pass "graph.json compatto (shorthand)"; else mark_fail "graph.json non compatto"; fi
 echo ""
 
+# TEST 38: cm scan --deep (AST extraction)
+echo "━━━ TEST 38: cm scan --deep ━━━"
+# Create a JS file with classes, functions, exports for AST extraction
+mkdir -p lib
+cat > lib/service.js << 'ENDJS'
+import { db } from './database';
+import { cache } from './cache';
+
+export class UserService {
+  constructor() { this.db = db; }
+  async find(id) { return this.db.query(`SELECT * FROM users WHERE id=${id}`); }
+}
+
+export async function login(token) {
+  const user = await db.auth(token);
+  return user;
+}
+
+export default function helper() { return 'help'; }
+ENDJS
+DEEP_OUT=$($CMD scan --deep 2>&1)
+assert_grep "AST deep scan" "AST deep scan" "$DEEP_OUT"
+echo ""
+
+# TEST 39: provenance in gi (EXTRACTED, INFERRED)
+echo "━━━ TEST 39: cm gi provenance ━━━"
+GI_OUT=$($CMD gi 2>&1)
+assert_grep "provenance EXTRACTED" "EXTRACTED" "$GI_OUT"
+assert_grep "provenance INFERRED" "INFERRED" "$GI_OUT"
+# Also check that class/func symbols from AST scan are in the graph (gi shows types)
+GI_TYPES=$($CMD gi 2>&1)
+assert_grep "class symbols" "class" "$GI_TYPES"
+assert_grep "function symbols" "function" "$GI_TYPES"
+echo ""
+
+# TEST 40: cm ge confidence validation
+echo "━━━ TEST 40: cm ge confidence ━━━"
+# Create a fresh node pair for edge testing
+$CMD ga test_src "Test Source" module > /dev/null 2>&1
+$CMD ga test_tgt "Test Target" module > /dev/null 2>&1
+GE_INFERRED=$($CMD ge test_src test_tgt depends_on INFERRED 2>&1)
+assert_grep "ge inferred" "INFERRED" "$GE_INFERRED"
+# Test invalid confidence
+GE_BAD=$($CMD ge test_src test_tgt depends_on INVALID 2>&1 || true)
+if echo "$GE_BAD" | grep -qi "invalid"; then mark_pass "ge invalid confidence rifiutato"; else mark_fail "ge invalid confidence non rifiutato"; fi
+echo ""
+
 # ======================================================
 #  SUMMARY
 # ======================================================

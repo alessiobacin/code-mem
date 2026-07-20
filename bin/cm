@@ -301,6 +301,266 @@ function getGitBranch(cwd) {
   }
 }
 
+const CM_DEPS_DIR = join(process.env.HOME || "/tmp", ".cm", "deps");
+
+function checkAcorn() {
+  try {
+    const acorn = require(join(CM_DEPS_DIR, "node_modules", "acorn"));
+    const acornLoose = require(join(CM_DEPS_DIR, "node_modules", "acorn-loose"));
+    return { acorn, acornLoose };
+  } catch { return null; }
+}
+
+function installAcornDeps() {
+  try {
+    if (checkAcorn()) return true;
+    const pj = join(CM_DEPS_DIR, "package.json");
+    if (!existsSync(pj)) {
+      mkdirSync(CM_DEPS_DIR, { recursive: true });
+      writeFileSync(pj, JSON.stringify({ name: "cm-deps", private: true }));
+    }
+    execSync("npm install acorn acorn-loose", { cwd: CM_DEPS_DIR, stdio: "pipe", timeout: 60000 });
+    return true;
+  } catch { return false; }
+}
+
+function scanASTDeep(cwd, noAst) {
+  // Walk directory, parse JS/TS files with AST, extract symbols and relations
+  const nodes = [], edges = [];
+  const seenNodes = new Set();
+  const seenEdges = new Set();
+  const files = [];
+
+  function crawl(dir, depth) {
+    if (depth > 5) return;
+    let entries;
+    try { entries = readdirSync(dir); } catch { return; }
+    for (const en of entries) {
+      if (en.startsWith(".") || en === "node_modules" || en === "dist" || en === "build" || en === "memory" || en === "coverage" || en === ".next") continue;
+      const full = join(dir, en);
+      let s;
+      try { s = statSync(full); } catch { continue; }
+      if (s.isDirectory()) crawl(full, depth + 1);
+      else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(en)) files.push(full);
+    }
+  }
+  crawl(cwd, 0);
+
+  const acornDeps = noAst ? null : checkAcorn();
+  const hasAcorn = !!acornDeps;
+  const defaultRe = /(?:from\s+["']([^"']+)["']|require\(["']([^"']+)["']\)|import\s+["']([^"']+)["'])/g;
+  const classRe = /\bclass\s+(\w+)(?:\s+extends\s+(\w+))?/g;
+  const funcRe = /\b(?:async\s+)?function\s+(\w+)/g;
+  const arrowRe = /(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|(?:\w+\s*=>))/g;
+  const exportRe = /export\s+(?:default\s+)?(?:class|function|interface|type|const|let|var|enum)\s+(\w+)/g;
+  const interfaceRe = /\binterface\s+(\w+)(?:\s+extends\s+([^{]+))?/g;
+  const typeRe = /\btype\s+(\w+)\s*=/g;
+  const methodCallRe = /\b(\w+)\.(\w+)\s*\(/g;
+
+  // Quick hash for node IDs
+  function hashId(label) {
+    let h = 0;
+    for (let i = 0; i < label.length; i++) h = ((h << 5) - h + label.charCodeAt(i)) | 0;
+    return "ast__" + (h >>> 0).toString(36);
+  }
+
+  function addNode(id, label, type) {
+    if (seenNodes.has(id)) return;
+    seenNodes.add(id);
+    nodes.push({ id, label, type, metadata: {}, created: nowIso() });
+  }
+
+  function addEdge(source, target, relation) {
+    const key = `${source}|${target}|${relation}`;
+    if (seenEdges.has(key)) return;
+    seenEdges.add(key);
+    edges.push({ source, target, relation, confidence: "INFERRED", metadata: {}, created: nowIso() });
+  }
+
+  function walkASTWithAcorn(acorn, acornLoose, content, fileBase, filePath) {
+    let ast;
+    const isJSX = /\.(jsx|tsx)$/i.test(filePath);
+    const isTS = /\.tsx?$/i.test(filePath);
+    try {
+      ast = (isTS ? acornLoose : acorn).parse(content, {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        allowReturnOutsideFunction: true,
+        allowImportExportEverywhere: true,
+        ...(isJSX ? { ecmaFeatures: { jsx: true } } : {}),
+      });
+    } catch { return; }
+
+    const fileId = hashId(fileBase);
+    addNode(fileId, fileBase, "file");
+
+    function walkNode(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "ClassDeclaration" && node.id) {
+        const cid = hashId(`class:${fileBase}:${node.id.name}`);
+        addNode(cid, node.id.name, "class");
+        addEdge(fileId, cid, "defines");
+        if (node.superClass && node.superClass.type === "Identifier") {
+          const sid = hashId(`class:${fileBase}:${node.superClass.name}`);
+          addEdge(cid, sid, "extends");
+        }
+      } else if (node.type === "FunctionDeclaration" && node.id) {
+        const fid = hashId(`fn:${fileBase}:${node.id.name}`);
+        addNode(fid, node.id.name, "function");
+        addEdge(fileId, fid, "defines");
+      } else if (node.type === "VariableDeclarator" && node.id && node.init) {
+        if (/^(ArrowFunctionExpression|FunctionExpression)$/.test(node.init.type)) {
+          const fid = hashId(`fn:${fileBase}:${node.id.name}`);
+          addNode(fid, node.id.name, "function");
+          addEdge(fileId, fid, "defines");
+        }
+      } else if (node.type === "ExportDefaultDeclaration" && node.declaration) {
+        if (node.declaration.id) {
+          const eid = hashId(`export:${fileBase}:${node.declaration.id.name}`);
+          addNode(eid, node.declaration.id.name, "export");
+          addEdge(fileId, eid, "defines");
+        }
+      } else if (node.type === "ExportNamedDeclaration" && node.declaration && node.declaration.id) {
+        const eid = hashId(`export:${fileBase}:${node.declaration.id.name}`);
+        addNode(eid, node.declaration.id.name, "export");
+        addEdge(fileId, eid, "defines");
+      } else if (node.type === "ImportDeclaration" && node.source) {
+        const targetName = node.source.value.split("/")[0];
+        if (targetName && !targetName.startsWith(".") && targetName.length > 1) {
+          const tid = hashId(`module:${targetName}`);
+          addNode(tid, targetName, "module");
+          addEdge(fileId, tid, "depends_on");
+        }
+      }
+
+      // Recurse into children
+      for (const key of Object.keys(node)) {
+        if (key === "parent" || key === "start" || key === "end" || key === "loc" || key === "range") continue;
+        const child = node[key];
+        if (Array.isArray(child)) for (const c of child) walkNode(c);
+        else if (child && typeof child.type === "string") walkNode(child);
+      }
+    }
+
+    walkNode(ast);
+  }
+
+  function walkASTWithRegex(content, fileBase) {
+    const fileId = hashId(fileBase);
+    addNode(fileId, fileBase, "file");
+
+    // Imports
+    let match;
+    defaultRe.lastIndex = 0;
+    while ((match = defaultRe.exec(content)) !== null) {
+      const target = (match[1] || match[2] || match[3] || "").split("/")[0];
+      if (target && !target.startsWith(".") && target.length > 1) {
+        const tid = hashId(`module:${target}`);
+        addNode(tid, target, "module");
+        addEdge(fileId, tid, "depends_on");
+      }
+    }
+
+    // Classes
+    classRe.lastIndex = 0;
+    while ((match = classRe.exec(content)) !== null) {
+      const cid = hashId(`class:${fileBase}:${match[1]}`);
+      addNode(cid, match[1], "class");
+      addEdge(fileId, cid, "defines");
+      if (match[2]) {
+        const sid = hashId(`class:${fileBase}:${match[2]}`);
+        addEdge(cid, sid, "extends");
+      }
+    }
+
+    // Functions
+    funcRe.lastIndex = 0;
+    while ((match = funcRe.exec(content)) !== null) {
+      const fid = hashId(`fn:${fileBase}:${match[1]}`);
+      addNode(fid, match[1], "function");
+      addEdge(fileId, fid, "defines");
+    }
+
+    // Arrow functions (const fn = ...)
+    arrowRe.lastIndex = 0;
+    while ((match = arrowRe.exec(content)) !== null) {
+      const fid = hashId(`fn:${fileBase}:${match[1]}`);
+      if (!seenNodes.has(fid)) {
+        addNode(fid, match[1], "function");
+        addEdge(fileId, fid, "defines");
+      }
+    }
+
+    // Exports
+    exportRe.lastIndex = 0;
+    while ((match = exportRe.exec(content)) !== null) {
+      const eid = hashId(`export:${fileBase}:${match[1]}`);
+      if (!seenNodes.has(eid)) {
+        addNode(eid, match[1], "export");
+        addEdge(fileId, eid, "defines");
+      }
+    }
+
+    // Interfaces
+    interfaceRe.lastIndex = 0;
+    while ((match = interfaceRe.exec(content)) !== null) {
+      const iid = hashId(`interface:${fileBase}:${match[1]}`);
+      addNode(iid, match[1], "interface");
+      addEdge(fileId, iid, "defines");
+      if (match[2]) {
+        const parent = match[2].trim().split(/\s*,\s*/)[0];
+        if (parent && parent.length > 1) {
+          const pid = hashId(`interface:${fileBase}:${parent}`);
+          addEdge(iid, pid, "extends");
+        }
+      }
+    }
+
+    // Type aliases
+    typeRe.lastIndex = 0;
+    while ((match = typeRe.exec(content)) !== null) {
+      const tid = hashId(`type:${fileBase}:${match[1]}`);
+      addNode(tid, match[1], "type");
+      addEdge(fileId, tid, "defines");
+    }
+
+    // Method calls (low confidence => AMBIGUOUS)
+    methodCallRe.lastIndex = 0;
+    const callCounts = {};
+    while ((match = methodCallRe.exec(content)) !== null) {
+      const obj = match[1];
+      if (!callCounts[obj]) callCounts[obj] = 0;
+      callCounts[obj]++;
+    }
+    for (const [obj, count] of Object.entries(callCounts)) {
+      if (count > 2) {
+        const tid = hashId(`module:${obj}`);
+        // Only add edge if target node exists (already imported)
+        if (seenNodes.has(tid)) {
+          addEdge(fileId, tid, "references");
+        }
+      }
+    }
+  }
+
+  // Process each file
+  for (const file of files) {
+    let content;
+    try { content = readFileSync(file, "utf-8"); } catch { continue; }
+    const fileBase = basename(file).replace(/\.[^.]+$/, "");
+
+    if (hasAcorn && /\.(js|jsx|mjs|cjs)$/i.test(file)) {
+      // Use real AST for JS files
+      walkASTWithAcorn(acornDeps.acorn, acornDeps.acornLoose, content, fileBase, file);
+    } else {
+      // Use regex for TS files or when acorn unavailable
+      walkASTWithRegex(content, fileBase);
+    }
+  }
+
+  return { nodes, edges, hasAcorn, files: files.length };
+}
+
 function checkOllama() {
   try {
     const res = execSync(
@@ -843,7 +1103,16 @@ function gh(g) {
   let o = `${g.nodes.length} nodes, ${g.edges.length} edges\n`;
   o += `Types: ${Object.entries(tc)
     .map(([t, c]) => `${t}: ${c}`)
-    .join(", ")}\n\n`;
+    .join(", ")}\n`;
+  // Provenance breakdown
+  const provCounts = { EXTRACTED: 0, INFERRED: 0, AMBIGUOUS: 0 };
+  for (const e of g.edges) {
+    const p = e.confidence || e.c || "EXTRACTED";
+    if (provCounts[p] !== undefined) provCounts[p]++;
+  }
+  const provParts = Object.entries(provCounts).filter(([, c]) => c > 0).map(([p, c]) => `${p}: ${c}`);
+  if (provParts.length) o += `Provenance: ${provParts.join(", ")}\n`;
+  o += "\n";
   o += "HUBS:\n";
   for (const x of h) {
     const p = [];
@@ -853,9 +1122,8 @@ function gh(g) {
   }
   o += "\nCROSS-TYPE:\n";
   for (const c of ct.slice(0, 8)) {
-    o += `  ${c.s.label} (${c.s.type}) ${
-      c.e.confidence === "INFERRED" ? "~~>" : "-->"
-    } ${c.t.label} (${c.t.type}) [${c.e.relation}]\n`;
+    const arrow = c.e.confidence === "INFERRED" ? "~~>" : c.e.confidence === "AMBIGUOUS" ? "..>" : "-->";
+    o += `  ${c.s.label} (${c.s.type}) ${arrow} ${c.t.label} (${c.t.type}) [${c.e.relation}]\n`;
   }
   o += "\nSUGGESTED:\n";
   if (h.length) o += `  cm gn ${h[0].node.id}\n`;
@@ -900,13 +1168,17 @@ Memory read commands:
 
 Graph commands:
   cm ga <id> <label> <type>
-  cm ge <source> <target> <relation> [confidence]
+  cm ge <source> <target> <relation> [EXTRACTED|INFERRED|AMBIGUOUS]
   cm gn <id>
   cm gp <from> <to> [--dijkstra]
-  cm gc
-  cm gx
+  cm gc [--vacuum]
+  cm gx [html|graphml|neo4j|svg]
   cm gs
   cm gi
+
+Scan commands:
+  cm scan --relations [--apply]
+  cm scan --deep [--no-ast]
 
 Search:
   cm sq <query> [n]
@@ -917,7 +1189,9 @@ Examples:
   cm backup --global
   cm recall "fix flaky tests" --level 2
   cm plan "deploy preview build"
-  cm project`;
+  cm project
+  cm scan --relations
+  cm scan --deep`;
 }
 
 function compareVersions(a, b) {
@@ -1022,7 +1296,7 @@ function runUpdate(force) {
 function parseArgs(parts) {
   const flags = {};
   const rest = [];
-  const booleanFlags = new Set(["force", "daemon", "global"]);
+  const booleanFlags = new Set(["force", "daemon", "global", "relations", "deep", "no-ast", "apply"]);
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
     if (part.startsWith("--")) {
@@ -2136,8 +2410,9 @@ async function sc(c) {
   return { me, no, ed, ts };
 }
 
-function scanCodeRelations(cwd) {
+function scanCodeRelations(cwd, d) {
   // Scan .ts/.tsx/.js/.jsx files for import/dependency relationships
+  // If d is provided, auto-upsert graph edges with INFERRED confidence
   const suggestions = [];
   const files = [];
   function crawl(dir, depth) {
@@ -2156,22 +2431,41 @@ function scanCodeRelations(cwd) {
   crawl(cwd, 0);
   const importRe = /(?:from\s+["']([^"']+)["']|require\(["']([^"']+)["']\)|import\s+["']([^"']+)["'])/g;
   const seenEdges = new Set();
+  const upserted = { edges: 0, nodes: 0 };
   for (const file of files) {
     let content;
     try { content = readFileSync(file, "utf-8"); } catch { continue; }
     const fileBase = basename(file).replace(/\.[^.]+$/, "");
     let match;
     importRe.lastIndex = 0;
+    let matchCount = 0;
     while ((match = importRe.exec(content)) !== null) {
+      matchCount++;
       const target = (match[1] || match[2] || match[3] || "").split("/")[0];
       if (!target || target === "." || target.startsWith(".") || target.length < 2) continue;
       const edgeKey = `${fileBase}|${target}`;
       if (!seenEdges.has(edgeKey)) {
         seenEdges.add(edgeKey);
-        suggestions.push({ source: fileBase, target, relation: "depends_on", file: file.replace(cwd, ".") });
+        const confidence = matchCount > 3 ? "INFERRED" : "AMBIGUOUS";
+        suggestions.push({ source: fileBase, target, relation: "depends_on", file: file.replace(cwd, "."), confidence });
+        if (d) {
+          // Auto-upsert graph nodes and edges
+          const srcId = `file:${fileBase}`;
+          const tgtId = `module:${target}`;
+          try {
+            upsertGraphNode(d, { id: srcId, label: fileBase, type: "file", metadata: {}, created: nowIso() });
+            upsertGraphNode(d, { id: tgtId, label: target, type: "module", metadata: {}, created: nowIso() });
+            upserted.nodes += 2;
+          } catch {}
+          try {
+            upsertGraphEdge(d, { source: srcId, target: tgtId, relation: "depends_on", confidence, metadata: {}, created: nowIso() });
+            upserted.edges++;
+          } catch {}
+        }
       }
     }
   }
+  suggestions._meta = { upserted };
   return suggestions;
 }
 
@@ -2822,6 +3116,8 @@ async function main() {
     refreshProjections(nd, c);
     try { runStmt(nd, "VACUUM"); } catch {}
     nd.close();
+    // Install optional AST parser deps (non-blocking, best-effort)
+    try { installAcornDeps(); } catch {}
     await installHooks(c);
     let msg = `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`;
     if (harnessArg && harnessArg[0] !== "-") {
@@ -3182,6 +3478,12 @@ async function main() {
       const tg = a[2];
       const rl = a[3];
       const cf = a[4] || "EXTRACTED";
+      const VALID_CONFIDENCE = new Set(["EXTRACTED", "INFERRED", "AMBIGUOUS"]);
+      if (!VALID_CONFIDENCE.has(cf)) {
+        console.log(`Invalid confidence "${cf}". Use EXTRACTED, INFERRED, or AMBIGUOUS.`);
+        d.close();
+        return;
+      }
       if (!getStmt(d, "SELECT id FROM graph_nodes WHERE id = ?", [sr])) {
         console.log(`Source "${sr}" not found.`);
         d.close();
@@ -3365,21 +3667,49 @@ async function main() {
 
   if (cmd === "scan") {
     const { flags } = parseArgs(a.slice(1));
+    if (flags.deep) {
+      if (flags.relations === false || flags.relations === undefined) {
+        // --deep implies full AST scan
+        const noAst = flags["no-ast"] === true;
+        const result = scanASTDeep(c, noAst);
+        // Upsert all extracted nodes and edges
+        let nodeCount = 0, edgeCount = 0;
+        for (const n of result.nodes) { try { upsertGraphNode(d, n); nodeCount++; } catch {} }
+        for (const e of result.edges) { try { upsertGraphEdge(d, e); edgeCount++; } catch {} }
+        syncGraphProjection(d, c);
+        console.log(`AST deep scan: ${result.files} files, ${nodeCount} nodes, ${edgeCount} edges`);
+        console.log(`  ${result.hasAcorn ? "acorn" : "regex"} parser (${result.nodes.filter(n => n.type !== "file").length} symbols)`);
+        console.log("Run: cm gc for community detection on enriched graph.");
+        d.close();
+        return;
+      }
+      // Fall through to --relations processing below with --apply
+    }
     if (flags.relations) {
-      const suggestions = scanCodeRelations(c);
+      const applyEdges = flags.apply === true;
+      const suggestions = scanCodeRelations(c, applyEdges ? d : null);
       if (!suggestions.length) {
         console.log("No relation suggestions found.");
       } else {
         console.log(`Found ${suggestions.length} relation suggestion(s):`);
         for (const s of suggestions) {
-          console.log(`  ${s.source} --[${s.relation}]--> ${s.target} (from ${s.file})`);
+          if (s.file && !s.source_id) {
+            const arrow = s.confidence === "INFERRED" ? "~~>" : s.confidence === "AMBIGUOUS" ? "..>" : "-->";
+            console.log(`  ${s.source} ${arrow} ${s.target} [${s.relation}, ${s.confidence || "INFERRED"}] (${s.file})`);
+          } else {
+            console.log(`  ${s.source} --[${s.relation}]--> ${s.target}`);
+          }
         }
-        console.log("Run: cm ge <source> <target> <relation> to add any.");
+        if (applyEdges && suggestions._meta) {
+          console.log(`Auto-upserted: ${suggestions._meta.upserted.edges} edges, ${suggestions._meta.upserted.nodes} nodes`);
+        } else {
+          console.log("Run: cm ge <source> <target> <relation> to add any.");
+        }
       }
       d.close();
       return;
     }
-    console.log("Usage: cm scan --relations");
+    console.log("Usage: cm scan --relations [--apply] | cm scan --deep [--no-ast]");
     d.close();
     return;
   }
