@@ -1002,6 +1002,17 @@ function importLegacyGraphFile(d, cwd) {
   return imported;
 }
 
+function resolveNode(g, query) {
+  if (!query) return null;
+  const candidates = [
+    g.nodes.find((n) => n.id === query),
+    g.nodes.find((n) => n.label === query),
+    g.nodes.find((n) => n.id.startsWith(query) || n.id.includes(query.toLowerCase())),
+    g.nodes.find((n) => String(n.label || "").toLowerCase().startsWith(query.toLowerCase()) || String(n.label || "").toLowerCase().includes(query.toLowerCase())),
+  ];
+  return candidates.find(Boolean) || null;
+}
+
 function importFromGraphify(d, cwd, graphPath, opts = {}) {
   // Import graphify graph.json into cm graph
   if (!existsSync(graphPath)) {
@@ -1345,10 +1356,13 @@ Memory read commands:
   cm project
   cm consolidate
 
+Graph query:
+  cm query <question>   BFS from keyword-matched nodes
+
 Graph commands:
   cm ga <id> <label> <type>
   cm ge <source> <target> <relation> [EXTRACTED|INFERRED|AMBIGUOUS]
-  cm gn <id>
+  cm gn <id|label>
   cm gp <from> <to> [--dijkstra]
   cm gc [--vacuum]
   cm gx [html|graphml|neo4j|svg]
@@ -2165,8 +2179,8 @@ function expandGraphTerms(d, words, limit = 12) {
     const like = `%${word}%`;
     const nodes = allStmt(
       d,
-      "SELECT id,label,type FROM graph_nodes WHERE lower(label) LIKE ? OR lower(type) LIKE ? LIMIT 8",
-      [like, like]
+      "SELECT id,label,type FROM graph_nodes WHERE lower(label) LIKE ? OR lower(type) LIKE ? OR lower(id) LIKE ? LIMIT 8",
+      [like, like, like]
     );
     for (const node of nodes) matched.set(node.id, node);
   }
@@ -3695,17 +3709,19 @@ async function main() {
       return;
     }
     if (cmd === "gn") {
-      const id = a[1];
-      if (!id) {
-        console.log("id required");
+      const query = a[1];
+      if (!query) {
+        console.log("id or label required");
         process.exit(1);
       }
-      const nd = g.nodes.find((n) => n.id === id);
+      const nd = resolveNode(g, query);
       if (!nd) {
-        console.log(`"${id}" not found. Nodes: ${g.nodes.map((n) => n.id).join(", ")}`);
+        const candidates = g.nodes.filter(n => n.label?.toLowerCase().includes(query.toLowerCase()));
+        console.log(`"${query}" not found.${candidates.length ? ` Did you mean: ${candidates.slice(0, 5).map(n => n.label).join(", ")}?` : ""}`);
         d.close();
         return;
       }
+      const id = nd.id;
       const cn = g.edges.filter((e) => e.source === id || e.target === id);
       if (!cn.length) {
         console.log(`${nd.label} no connections.`);
@@ -3722,12 +3738,14 @@ async function main() {
       return;
     }
     if (cmd === "gp") {
-      const fr = a[1];
-      const to = a[2];
-      if (!fr || !to) {
+      const frRaw = a[1];
+      const toRaw = a[2];
+      if (!frRaw || !toRaw) {
         console.log("Usage: cm gp <from> <to>");
         process.exit(1);
       }
+      const fr = resolveNode(g, frRaw)?.id || frRaw;
+      const to = resolveNode(g, toRaw)?.id || toRaw;
       const weighted = a.includes("--dijkstra");
       const adj = {};
       for (const n of g.nodes) adj[n.id] = [];
@@ -3737,7 +3755,7 @@ async function main() {
         if (adj[e.target]) adj[e.target].push({ node: e.source, edge: e, weight: w });
       }
       if (!adj[fr] || !adj[to]) {
-        console.log(`"${adj[fr] ? to : fr}" not found.`);
+        console.log(`"${adj[fr] ? toRaw : frRaw}" not found.`);
         d.close();
         return;
       }
@@ -3850,6 +3868,68 @@ async function main() {
     if (cmd === "gs") console.log(`${g.nodes.length} nodes, ${g.edges.length} edges`);
     if (cmd === "gi") console.log(gh(g));
     if (cmd === "gs" || cmd === "gi") syncGraphProjection(d, c);
+    d.close();
+    return;
+  }
+
+  if (cmd === "query") {
+    const question = a.slice(1).join(" ");
+    if (!question) {
+      console.log("Usage: cm query <question>");
+      process.exit(1);
+    }
+    // BFS from nodes matching keywords in the question
+    const keywords = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const matchedNodes = new Map();
+    for (const kw of keywords) {
+      const like = `%${kw}%`;
+      const rows = allStmt(d,
+        "SELECT id,label,type FROM graph_nodes WHERE lower(label) LIKE ? OR lower(id) LIKE ? LIMIT 16",
+        [like, like]
+      );
+      for (const row of rows) matchedNodes.set(row.id, row);
+    }
+    if (!matchedNodes.size) {
+      console.log("No nodes matched the query.");
+      d.close();
+      return;
+    }
+    // Load full graph for BFS
+    const g = loadGraphFromStore(d);
+    const adj = {};
+    for (const n of g.nodes) adj[n.id] = [];
+    for (const e of g.edges) {
+      if (adj[e.source]) adj[e.source].push({ node: e.target, edge: e });
+      if (adj[e.target]) adj[e.target].push({ node: e.source, edge: e });
+    }
+    const MAX_DEPTH = 3;
+    const visited = new Set();
+    const results = [];
+    const queue = [...matchedNodes.keys()].map(id => ({ id, depth: 0 }));
+    for (const { id, depth } of queue) {
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const nd = g.nodes.find(n => n.id === id);
+      results.push({ node: nd?.label || id, type: nd?.type || "?", depth, relation: depth === 0 ? "seed" : "" });
+      if (depth < MAX_DEPTH) {
+        for (const nb of adj[id] || []) {
+          if (!visited.has(nb.node)) {
+            queue.push({ id: nb.node, depth: depth + 1 });
+            const nbn = g.nodes.find(n => n.id === nb.node);
+            results.push({ node: nbn?.label || nb.node, type: nbn?.type || "?", depth: depth + 1, relation: nb.edge.relation });
+          }
+        }
+      }
+    }
+    if (results.length <= matchedNodes.size) {
+      console.log(`Seed: ${[...matchedNodes.values()].map(n => n.label).join(", ")} — no further connections found.`);
+    } else {
+      console.log(`Query: "${question}"\n  ${matchedNodes.size} seed nodes, ${results.length - matchedNodes.size} related nodes (BFS depth ${MAX_DEPTH}):`);
+      for (const r of results) {
+        const indent = "  ".repeat(r.depth + 1);
+        console.log(`${indent}${r.depth === 0 ? "*" : "-"} ${r.node} (${r.type})${r.relation ? ` [${r.relation}]` : ""}`);
+      }
+    }
     d.close();
     return;
   }
