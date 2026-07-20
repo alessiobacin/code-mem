@@ -18,7 +18,7 @@ const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const readline = require("readline");
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -1014,7 +1014,7 @@ function importFromGraphify(d, cwd, graphPath, opts = {}) {
     return { nodes: 0, edges: 0 };
   }
   const gfyNodes = raw.nodes || [];
-  const gfyEdges = raw.edges || [];
+  const gfyEdges = [...(raw.edges || []), ...(raw.links || [])];
   const hyEdges = raw.hyperedges || [];
   if (opts.dryRun) {
     return { nodes: gfyNodes.length, edges: gfyEdges.length + hyEdges.length };
@@ -3803,10 +3803,15 @@ async function main() {
         commMap[ci.community].push(ci.label);
       }
       console.log(`${Object.keys(commMap).length} communities:`);
+      let singletonCount = 0;
       for (const [cid, members] of Object.entries(commMap)) {
         const size = members.length;
+        if (size <= 1) { singletonCount++; continue; }
         const names = size <= 5 ? members.join(", ") : members.slice(0, 4).join(", ") + `, ... (${size} total)`;
         console.log(`  Community ${cid}: [${size}] ${names}`);
+      }
+      if (singletonCount > 0) {
+        console.log(`  ... +${singletonCount} singleton communities (isolated nodes)`);
       }
       // Store communities in graph.json metadata
       const nodeComm = {};
