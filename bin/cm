@@ -1002,6 +1002,185 @@ function importLegacyGraphFile(d, cwd) {
   return imported;
 }
 
+function importFromGraphify(d, cwd, graphPath, opts = {}) {
+  // Import graphify graph.json into cm graph
+  if (!existsSync(graphPath)) {
+    console.log(`Graphify file not found: ${graphPath}`);
+    return { nodes: 0, edges: 0 };
+  }
+  let raw;
+  try { raw = JSON.parse(readFileSync(graphPath, "utf-8")); } catch (e) {
+    console.log(`Invalid graphify file: ${e.message}`);
+    return { nodes: 0, edges: 0 };
+  }
+  const gfyNodes = raw.nodes || [];
+  const gfyEdges = raw.edges || [];
+  const hyEdges = raw.hyperedges || [];
+  if (opts.dryRun) {
+    return { nodes: gfyNodes.length, edges: gfyEdges.length + hyEdges.length };
+  }
+  // Build ID map: track which local IDs exist for collision detection
+  const existingIds = new Set();
+  try {
+    const rows = allStmt(d, "SELECT id FROM graph_nodes");
+    for (const r of rows) existingIds.add(r.id);
+  } catch {}
+
+  let nodeCount = 0, edgeCount = 0;
+  const idMap = {}; // graphify id → cm id
+
+  for (const n of gfyNodes) {
+    if (!n.id) continue;
+    let cid = n.id;
+    if (existingIds.has(cid)) cid = `gfy:${n.id}`;
+    idMap[n.id] = cid;
+    const label = n.label || n.norm_label || n.id;
+    const type = (n.file_type && n.file_type !== "?" && n.file_type !== "?") ? n.file_type : "graphify";
+    const metadata = {};
+    for (const k of ["source_file", "source_location", "community", "norm_label", "author", "contributor", "source_url", "captured_at"]) {
+      if (n[k] !== undefined && n[k] !== null) metadata[k] = n[k];
+    }
+    try {
+      if (upsertGraphNode(d, { id: cid, label, type, metadata, created: nowIso() })) nodeCount++;
+    } catch {}
+  }
+
+  // Edges
+  const allEdges = [...gfyEdges];
+  for (const he of hyEdges) {
+    if (he.nodes && Array.isArray(he.nodes) && he.nodes.length >= 2) {
+      const relation = he.relation || "related_to";
+      for (let i = 0; i < he.nodes.length; i++) {
+        for (let j = i + 1; j < he.nodes.length; j++) {
+          allEdges.push({ source: he.nodes[i], target: he.nodes[j], relation, confidence: "INFERRED", metadata: { hyperedge: he.id || "" } });
+        }
+      }
+    }
+  }
+
+  for (const e of allEdges) {
+    const src = idMap[e.source] || `gfy:${e.source}`;
+    const tgt = idMap[e.target] || `gfy:${e.target}`;
+    const relation = e.relation || "related_to";
+    const confidence = e.confidence || "INFERRED";
+    const metadata = e.metadata || {};
+    if (e.confidence_score !== undefined) metadata.confidence_score = e.confidence_score;
+    if (e.weight !== undefined) metadata.weight = e.weight;
+    try {
+      if (upsertGraphEdge(d, { source: src, target: tgt, relation, confidence, metadata, created: nowIso() })) edgeCount++;
+    } catch {}
+  }
+
+  syncGraphProjection(d, cwd);
+  return { nodes: nodeCount, edges: edgeCount };
+}
+
+function importFromClaudeMem(d, cwd, projectFilter, opts = {}) {
+  // Import memories from claude-mem database
+  const cmemDbPath = join(process.env.HOME || "/tmp", ".claude-mem", "claude-mem.db");
+  if (!existsSync(cmemDbPath)) {
+    console.log(`Claude-mem database not found at ${cmemDbPath}`);
+    return { memories: 0 };
+  }
+  try {
+    const DB = require("node:sqlite").DatabaseSync;
+    const cmemDb = new DB(cmemDbPath, { open: true, readOnly: true });
+    let rows;
+    if (projectFilter) {
+      rows = cmemDb.prepare("SELECT * FROM observations WHERE project = ? ORDER BY created_at ASC").all(projectFilter);
+    } else {
+      rows = cmemDb.prepare("SELECT * FROM observations ORDER BY created_at ASC").all();
+    }
+    cmemDb.close();
+    if (opts.dryRun) return { memories: rows.length };
+
+    let memoryCount = 0;
+    for (const row of rows) {
+      const body = [row.text || "", row.narrative || ""].filter(Boolean).join("\n\n");
+      if (!body.trim()) continue;
+      const tags = ["claude-mem"];
+      const summaryParts = [];
+      if (row.facts) { summaryParts.push(row.facts); }
+      if (row.concepts) {
+        summaryParts.push(row.concepts);
+        row.concepts.split(",").map(s => s.trim()).filter(Boolean).forEach(t => tags.push(t));
+      }
+      const files = [];
+      if (row.files_read) row.files_read.split(",").map(s => s.trim()).filter(Boolean).forEach(f => { if (!files.includes(f)) files.push(f); });
+      if (row.files_modified) row.files_modified.split(",").map(s => s.trim()).filter(Boolean).forEach(f => { if (!files.includes(f)) files.push(f); });
+
+      const memoryId = `cmem:${hashText(row.text || "")}`;
+      const result = upsertMemoryItem(d, {
+        id: memoryId,
+        kind: row.type || "fact",
+        layer: "semantic",
+        title: row.title || row.type || "Claude-mem observation",
+        body: body.trim(),
+        summary: summaryParts.join("; ").slice(0, 500),
+        confidence: 0.7,
+        salience: 0.5,
+        source: "claude-mem",
+        cwd,
+        gitBranch: "",
+        agent: "claude-mem",
+        taskKind: "",
+        files,
+        tags,
+        sessionId: "",
+        createdAt: row.created_at || nowIso(),
+        metadata: { cmem_observation_id: row.id },
+      });
+      if (result && result.id) memoryCount++;
+    }
+    refreshProjections(d, cwd);
+    return { memories: memoryCount };
+  } catch (e) {
+    console.log(`Claude-mem import error: ${e.message}`);
+    return { memories: 0 };
+  }
+}
+
+function importFromJson(d, cwd, filePath, opts = {}) {
+  // Import generic JSON with nodes/edges arrays
+  if (!existsSync(filePath)) {
+    console.log(`File not found: ${filePath}`);
+    return { nodes: 0, edges: 0 };
+  }
+  let raw;
+  try { raw = JSON.parse(readFileSync(filePath, "utf-8")); } catch (e) {
+    console.log(`Invalid JSON file: ${e.message}`);
+    return { nodes: 0, edges: 0 };
+  }
+  const nodes = raw.nodes || [];
+  const edges = raw.edges || [];
+  if (opts.dryRun) return { nodes: nodes.length, edges: edges.length };
+
+  let nodeCount = 0, edgeCount = 0;
+  for (const n of nodes) {
+    const normalized = normalizeGraphNode({
+      id: n.id,
+      label: n.label || n.name || n.title || n.id,
+      type: n.type || n.category || n.kind || "imported",
+      metadata: n.metadata || {},
+      created: n.created,
+    });
+    try { if (upsertGraphNode(d, normalized)) nodeCount++; } catch {}
+  }
+  for (const e of edges) {
+    const normalized = normalizeGraphEdge({
+      source: e.source || e.from || e.src,
+      target: e.target || e.to || e.dst,
+      relation: e.relation || e.type || e.label || "related_to",
+      confidence: e.confidence || "EXTRACTED",
+      metadata: e.metadata || {},
+      created: e.created,
+    });
+    try { if (upsertGraphEdge(d, normalized)) edgeCount++; } catch {}
+  }
+  syncGraphProjection(d, cwd);
+  return { nodes: nodeCount, edges: edgeCount };
+}
+
 function ensureGraphStoreReady(d, cwd) {
   importLegacyGraphFile(d, cwd);
   if (!existsSync(mp(cwd, GF))) {
@@ -1183,6 +1362,11 @@ Scan commands:
 Search:
   cm sq <query> [n]
 
+Import commands:
+  cm import --graphify <path>   Import graph from graphify
+  cm import --claude-mem         Import memories from claude-mem
+  cm import --json <path>        Import nodes/edges from JSON
+
 Examples:
   cm save --kind decision --title "Use Vitest" "Vitest is the default test runner"
   cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"
@@ -1296,7 +1480,7 @@ function runUpdate(force) {
 function parseArgs(parts) {
   const flags = {};
   const rest = [];
-  const booleanFlags = new Set(["force", "daemon", "global", "relations", "deep", "no-ast", "apply"]);
+  const booleanFlags = new Set(["force", "daemon", "global", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "claude-mem"]);
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
     if (part.startsWith("--")) {
@@ -3710,6 +3894,43 @@ async function main() {
       return;
     }
     console.log("Usage: cm scan --relations [--apply] | cm scan --deep [--no-ast]");
+    d.close();
+    return;
+  }
+
+  if (cmd === "import") {
+    const { flags } = parseArgs(a.slice(1));
+    const dryRun = flags["dry-run"] === true;
+    const opts = { dryRun };
+
+    if (flags.graphify) {
+      const src = flags.graphify === true ? (a[2] || "") : flags.graphify;
+      if (!src || !existsSync(src)) { console.log(`Graphify file not found: ${src}`); d.close(); return; }
+      if (!dryRun && flags.replace) { runStmt(d, "DELETE FROM graph_nodes"); runStmt(d, "DELETE FROM graph_edges"); }
+      const result = importFromGraphify(d, c, src, opts);
+      console.log(`Imported: ${result.nodes} nodes, ${result.edges} edges`);
+      d.close(); return;
+    }
+
+    if (flags["claude-mem"]) {
+      const proj = flags.project || null;
+      if (!dryRun && flags.replace) { runStmt(d, "DELETE FROM memory_items WHERE source = 'claude-mem'"); }
+      const result = importFromClaudeMem(d, c, proj, opts);
+      console.log(`Imported: ${result.memories} memories from claude-mem`);
+      d.close(); return;
+    }
+
+    if (flags.json) {
+      const src = flags.json === true ? (a[2] || "") : flags.json;
+      if (!src || !existsSync(src)) { console.log(`JSON file not found: ${src}`); d.close(); return; }
+      if (!dryRun && flags.replace) { runStmt(d, "DELETE FROM graph_nodes"); runStmt(d, "DELETE FROM graph_edges"); }
+      const result = importFromJson(d, c, src, opts);
+      console.log(`Imported: ${result.nodes} nodes, ${result.edges} edges`);
+      d.close(); return;
+    }
+
+    console.log("Usage: cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path>");
+    console.log("Options: --dry-run, --replace");
     d.close();
     return;
   }

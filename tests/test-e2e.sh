@@ -467,6 +467,26 @@ GE_BAD=$($CMD ge test_src test_tgt depends_on INVALID 2>&1 || true)
 if echo "$GE_BAD" | grep -qi "invalid"; then mark_pass "ge invalid confidence rifiutato"; else mark_fail "ge invalid confidence non rifiutato"; fi
 echo ""
 
+# TEST 41: cm import --json
+echo "━━━ TEST 41: cm import --json ━━━"
+echo '{"nodes":[{"id":"imported_n1","label":"Node1","type":"entity"},{"id":"imported_n2","label":"Node2","type":"entity"}],"edges":[{"source":"imported_n1","target":"imported_n2","relation":"connects"}]}' > "$TESTDIR/import-test.json"
+IMPORT=$($CMD import --json "$TESTDIR/import-test.json" 2>&1)
+assert_grep "import json" "Imported:" "$IMPORT"
+# Verify imported nodes exist via gn
+GN_AFTER=$($CMD gn imported_n1 2>&1)
+assert_grep "import visible in gn" "imported_n1\|Node1" "$GN_AFTER"
+echo ""
+
+# TEST 42: cm import --json --dry-run
+echo "━━━ TEST 42: cm import --dry-run ━━━"
+echo '{"nodes":[{"id":"never_imported","label":"DryNode","type":"entity"}],"edges":[]}' > "$TESTDIR/import-dry.json"
+DRY=$($CMD import --json "$TESTDIR/import-dry.json" --dry-run 2>&1)
+assert_grep "dry run" "Imported:" "$DRY"
+# Verify NOT written — check gs does NOT contain the dry-run node
+GS_DRY=$($CMD gs 2>&1)
+if echo "$GS_DRY" | grep -q "never_imported"; then mark_fail "dry-run imported anyway"; else mark_pass "dry-run not persisted"; fi
+echo ""
+
 # ======================================================
 #  SUMMARY
 # ======================================================

@@ -1,0 +1,41 @@
+{
+  "project": "code-mem",
+  "phase": "ast-and-provenance",
+  "goal": "Add AST deep scan + edge provenance INFERRED/AMBIGUOUS to match graphify, then verify performance comparison.",
+  "state": {
+    "completed": [
+      "scanASTDeep() — walks JS/TS files, extracts classes, functions, exports, interfaces, type aliases, modules via acorn or regex",
+      "scanCodeRelations() — now returns INFERRED/AMBIGUOUS confidence, supports --apply for auto-upsert",
+      "cm gi — provenance breakdown line (EXTRACTED: N, INFERRED: M, AMBIGUOUS: K)",
+      "cm ge — validates confidence values (EXTRACTED|INFERRED|AMBIGUOUS)",
+      "cm init — auto-installs acorn + acorn-loose to ~/.cm/deps/",
+      "cm scan --deep [--no-ast] — new command dispatch",
+      "Arrow styles: --> EXTRACTED, ~~> INFERRED, ..> AMBIGUOUS",
+      "81/81 tests pass (3 new: AST scan, provenance, ge confidence)",
+      "Benchmark: 15/15 passed (cm wins on all measured dimensions)"
+    ],
+    "working": [],
+    "issues": [
+      "Context critically low (1% remaining)",
+      "No benchmark before/after comparison for the new AST features specifically (benchmark runs on a fake project, doesn't test scan --deep on a real codebase)"
+    ]
+  },
+  "next_steps": [
+    "Optional: run benchmark on a real repo (e.g. code-mem itself) with --existing-repo to test AST deep scan at scale",
+    "Optional: update README/docs to document new commands and provenance",
+    "Optional: push to origin main"
+  ],
+  "files": [
+    "bin/cm — scanASTDeep (~200 lines), scanCodeRelations provenance, cm gi provenance, cm ge validation, cm init dep install, scan dispatch, parseArgs boolean flags, gl() help",
+    "tests/test-e2e.sh — tests 38 (AST deep scan), 39 (provenance + class/function types), 40 (ge confidence validation)"
+  ],
+  "decisions": [
+    "acorn + acorn-loose installati in ~/.cm/deps/ durante cm init (best-effort, non bloccante)",
+    "scanASTDeep usa acorn per .js/.mjs/.cjs, regex per .ts/.tsx (TypeScript non parseable da acorn)",
+    "--no-ast forza regex anche se acorn disponibile",
+    "Confidence: EXTRACTED (manuale ge), INFERRED (scansione con >3 match), AMBIGUOUS (≤3 match)",
+    "Nodi AST con ID formato ast__<hash36> per evitare collisioni",
+    "scan --deep upserta automaticamente nodi + edges nel grafo"
+  ],
+  "notes": "All code committed (96868b4). 81/81 tests pass. Benchmark 15/15 pass. Context critically low."
+}
