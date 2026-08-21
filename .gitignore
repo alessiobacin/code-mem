@@ -12,3 +12,13 @@ memory/
 state.db
 # pi-mqtt-orchestrator: per-task git worktrees (see docs/development-notes.md)
 .worktrees/
+
+# Orchestrator runtime (env/coordinator, see .env.example)
+.env*
+!.env.example
+
+# pi-mqtt-orchestrator runtime workspace
+.pi/
+
+# Generated benchmark/test state db
+state.db
