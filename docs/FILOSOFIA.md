@@ -43,7 +43,7 @@ Questa stratificazione permette a un agente di distinguere tra "abbiamo appena s
 
 ### 3. Recupero deterministico, arricchito da embedding
 
-Il cuore di `cm recall` è un motore di ranking deterministico che valuta le memorie su sette dimensioni contemporaneamente:
+Il cuore di `cm recall` è un motore di ranking deterministico che valuta le memorie su otto dimensioni contemporaneamente:
 
 - **keyword match** — rilevanza lessicale rispetto al task
 - **recency** — quanto è recente la memoria
@@ -56,7 +56,7 @@ Il cuore di `cm recall` è un motore di ranking deterministico che valuta le mem
 
 Il risultato è che una memoria può essere recuperata anche se non contiene nessuna delle parole chiave cercate, semplicemente perché è semanticamente simile. E a differenza di sistemi puramente vettoriali, cade sempre in piedi: se Ollama non è disponibile, il trigram fallback prende il suo posto — nessuna perdita di dimensione nel ranking, solo granularità diversa.
 
-### 4. Tre formati, un database
+### 4. Una base, più viste
 
 code-mem produce più viste locali della stessa informazione:
 
@@ -118,6 +118,8 @@ Nell'uso quotidiano:
   cm recall "task"                # prima di iniziare un task
   cm touch <id>                   # quando una memoria si rivela utile
   cm consolidate                  # dopo una sessione intensa
+  cm entities --apply             # estrai le entita' nel grafo quando attraversi nuove aree
+  cm history                      # rivedi la timeline della memoria + digest evolutivo
 
 Automatico:
   cm watch --daemon               # embedding + consolidate in background

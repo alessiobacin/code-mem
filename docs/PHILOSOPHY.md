@@ -56,7 +56,7 @@ The heart of `cm recall` is a deterministic ranking engine that evaluates memori
 
 The result is that a memory can be retrieved even if it contains none of the searched keywords, simply because it's semantically similar. And unlike purely vector-based systems, it always falls back gracefully: if Ollama isn't available, the trigram fallback takes over — no loss of ranking dimensions, just different granularity.
 
-### 4. Three formats, one database
+### 4. Multiple views, one database
 
 code-mem produces multiple local views of the same information:
 
@@ -118,6 +118,8 @@ Daily use:
   cm recall "task"                # before starting a task
   cm touch <id>                   # when a memory proves useful
   cm consolidate                  # after an intense session
+  cm entities --apply             # extract entities into the graph when crossing into new areas
+  cm history                      # review the memory timeline + evolution digest
 
 Automatic:
   cm watch --daemon               # background embedding + consolidation
