@@ -2,6 +2,8 @@
 
 > Guida completa per creare un ambiente di comparazione riproducibile tra i sistemi di memoria per agenti AI: **code-mem (cm)**, **graphify** e **claude-mem (MCP)**.
 
+> **Nota (2026):** dalla v0.6.0 code-mem ha chiuso vari gap di parita' con graphify (`cm gx html|svg|graphml|neo4j`, `cm query` BFS, `cm gc` community, `cm scan --deep/--relations`) e ha aggiunto estrazione entita' (`cm entities`/`--apply`) e sintesi storica (`cm history`/`digest`).
+
 ## Indice
 
 1. [Panoramica](#1-panoramica)

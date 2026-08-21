@@ -3,6 +3,8 @@
 > Come si comporta code-mem nella pratica, rispetto ad altri sistemi di memoria?
 > Questi test sono pensati per essere eseguiti **fianco a fianco** con due sessioni Claude Code (o un agente + note cartacee) per vedere la differenza reale.
 
+> **Nota (2026):** dalla v0.6.0 code-mem ha aggiunto `cm entities` (estrazione automatica di entita' dalle memorie/conversazioni, con `--apply` nel grafo) e `cm history`/`cm digest` (linea temporale + riassunto evolutivo). Per eseguire a mano scenari aggiornati feature-per-feature, vedi `tests/manual-scenarios/` (8 file).
+
 ## Setup per i test
 
 Per ogni test ti servono **due terminali**:

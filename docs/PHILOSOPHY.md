@@ -100,9 +100,9 @@ No daemon to keep running, no ports to expose, no health checks. The watch daemo
 
 No sync, no real-time collaboration, no hosted backend. Memory is still local to your machine: project memories live in the repo, global memories live in `~/.cm/`. If you want to share them, commit `memory/` for project knowledge or use `cm backup --global` / `cm restore --global` for personal global knowledge.
 
-### It's not a knowledge graph
+### It's not (only) a knowledge graph
 
-`graph.json` is intentionally simple: typed nodes and related edges. No community detection, no dynamic weights, no inference. For architectural exploration, graphify is the right tool. code-mem tracks who depends on what, not how the architecture evolves.
+`graph.json` stays lightweight: typed nodes and related edges, with deterministic traversal. Since 0.6.0 code-mem added lightweight graph capabilities without a runtime: `cm scan --deep/--relations`, `cm query` (BFS), `cm gc` (community detection), `cm gx` (html/svg/graphml/neo4j exports), and `cm entities --apply` (auto-extracted entity nodes + `co_occurs` edges). For deep architectural exploration at scale, graphify is still the heavier, dedicated tool — code-mem trades depth for zero dependency and simplicity.
 
 ## The Ideal Workflow
 
@@ -134,6 +134,16 @@ code-mem would rather be boring and always work than smart and fragile. It would
 This is its philosophy. And, we believe, its strength.
 
 ---
+
+## 2026 Evolution
+
+The philosophy stays the same (local-first, zero dependencies, agent-agnostic, deterministic), but the surface grew to close the most visible parity gaps — without giving up the core principles:
+
+- **`cm entities`** — automatic entity extraction from memories and (with `--msgs`) conversations, using heuristics and regex (no external model), optionally written into the graph via `--apply`.
+- **`cm history` / `cm digest`** — timeline + evolution digest of the memory (by kind, by month, top entities).
+- Richer but still dependency-free graph tooling: `cm scan --deep/--relations`, `cm query`, `cm gc`, `cm gx`.
+
+What stays fixed: **no cloud service, no REST API, no team/cloud sync** — those are deliberate philosophy choices, not gaps to fill.
 
 ## See Also
 
