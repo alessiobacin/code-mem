@@ -10,3 +10,5 @@ memory/
 
 # Generated benchmark/test state db
 state.db
+# pi-mqtt-orchestrator: per-task git worktrees (see docs/development-notes.md)
+.worktrees/
