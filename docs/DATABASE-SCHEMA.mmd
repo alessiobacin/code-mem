@@ -1,0 +1,81 @@
+erDiagram
+    MEMORY_ITEMS ||--o| MEMORY_CONTEXT : "has context"
+    MEMORY_ITEMS ||--o{ MEMORY_LINKS : "source of"
+    MEMORY_ITEMS ||--o{ MEMORY_LINKS : "target of"
+    MEMORY_ITEMS ||--o| MEMORY_VECTORS : "embedding"
+    MEMORY_ITEMS ||--o| MEMORY_FTS : "indexed"
+    GRAPH_NODES ||--o{ GRAPH_EDGES : "source of"
+    GRAPH_NODES ||--o{ GRAPH_EDGES : "target of"
+
+    MEMORY_ITEMS {
+        text id PK "e.g. mem_fact_h_..."
+        text kind "fact|decision|procedure|issue|preference|artifact"
+        text layer "working|episodic|semantic|procedural|user"
+        text title
+        text body
+        text summary
+        real confidence "0.0-1.0"
+        real salience "0.0-1.0"
+        text source "manual|scan|legacy-import|claude-mem"
+        text status "active|archived"
+        text created_at
+        text updated_at
+        text last_accessed_at
+        int access_count
+        text valid_from
+        text valid_to
+        text supersedes_id "self-reference"
+        text hash UK
+    }
+
+    MEMORY_CONTEXT {
+        text memory_id PK,FK
+        text cwd
+        text git_branch
+        text task_kind
+        text files_json
+        text tags_json
+    }
+
+    MEMORY_LINKS {
+        text source_id PK,FK
+        text target_id PK,FK
+        text relation PK "e.g. depends_on, solved_by"
+        real weight "default 1.0"
+        text created_at
+    }
+
+    MEMORY_VECTORS {
+        text memory_id PK,FK "ON DELETE CASCADE"
+        blob vector
+        text model "nomic-embed-text | trigram"
+        text created_at
+    }
+
+    MEMORY_FTS {
+        int rowid PK "content-sync triggers"
+        text id "UNINDEXED"
+        text title
+        text body
+        text summary
+        text tags
+        text kind
+    }
+
+    GRAPH_NODES {
+        text id PK "dir_*|ent_*|ast__*|module"
+        text label
+        text type "directory|project|module|tech|file|symbol..."
+        text metadata_json
+        text created_at
+        text updated_at
+    }
+
+    GRAPH_EDGES {
+        text source_id PK,FK
+        text target_id PK,FK
+        text relation PK "depends_on|contains|calls|co_occurs"
+        text confidence "EXTRACTED|INFERRED|AMBIGUOUS"
+        text metadata_json
+        text created_at
+    }
