@@ -1,0 +1,43 @@
+flowchart LR
+    CC[Claude Code session] -->|SessionStart hook| Auto[Auto-inject contextual memory]
+    CC -->|hooks| Capture[Capture observations from activity]
+
+    subgraph Plugin["claude-mem plugin (MCP server)"]
+        MCP[mcp-server.cjs]
+        Worker[worker-service / worker-wrapper]
+        Smart[smart-install.js / setup.sh]
+    end
+
+    Auto -.->|HTTP API| MCP
+    Capture -.->|save| MCP
+
+    MCP --> Tools[Expose MCP tools]
+    Tools --> T1[search]
+    Tools --> T2[timeline]
+    Tools --> T3[get_observations]
+    Tools --> T4[save_memory]
+
+    Q[User/agent: did we solve this last time?] --> S1
+    T1 --> S1[Step 1 search: index with IDs, types, timestamps]
+    S1 --> S2[Step 2 timeline: context around anchor, depth]
+    S2 --> S3[Step 3 get_observations: batch fetch full details]
+
+    subgraph Svr["claude-mem server (remote / self-hosted)"]
+        Db[(memory DB: observations, sessions, prompts)]
+        Sem[Semantic search + embeddings]
+    end
+    T1 --> Db
+    T2 --> Db
+    T3 --> Db
+    T4 --> Sem
+    Sem --> Db
+
+    subgraph Model["Storage model"]
+        M1[observations: bugfix/feature/decision/discovery/change]
+        M2[sessions]
+        M3[prompts]
+    end
+    Db --> Model
+
+    Inst["npm install -g claude-mem + MCP config"] --> Smart
+    Smart --> MCP
