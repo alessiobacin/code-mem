@@ -50,7 +50,18 @@ cm version
 - `cm gn <id>` - list graph neighbors
 - `cm gp <from> <to>` - graph path
 - `cm gi` - graph insights
+- `cm gc` - detect graph communities
+- `cm gx [html|graphml|neo4j|svg]` - export the graph
+- `cm scan --relations [--apply]` - suggest code relationships
+- `cm scan --deep` - AST deep scan
+- `cm query "question"` - BFS graph query from matched nodes
 - `cm sq "query"` - search stored conversation logs
+
+## Semantic
+
+- `cm entities [--limit n] [--msgs] [--apply]` - extract entities (tech, files, symbols) from memories (+ optional conversations)
+- `cm history [--kind k] [--entity e] [--limit n]` - timeline + digest of memory evolution
+- `cm digest` - alias of `cm history`
 
 ## Guidelines
 

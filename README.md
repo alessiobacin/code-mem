@@ -547,6 +547,49 @@ Usage:
 cm gi
 ```
 
+## Semantic Commands
+
+### `cm entities`
+
+Automatically extract entities (technologies, files/modules, symbols) from saved memories and, optionally, from conversation logs, and (with `--apply`) write them into the graph to enrich recall/query/explain.
+
+Usage:
+
+```bash
+cm entities [--limit n] [--msgs] [--apply] [--source global]
+```
+
+Examples:
+
+```bash
+cm entities                  # list top entities with category + count
+cm entities --limit 10       # cap the list
+cm entities --msgs           # also extract from stored conversations
+cm entities --apply          # upsert entity nodes + co-occurrence edges into the graph
+```
+
+Zero dependencies: all matching is heuristic (tech alias map, file-extension regex, PascalCase/CamelCase/kebab symbols).
+
+### `cm history` / `cm digest`
+
+Show a timeline of memory evolution plus a digest (by kind, by month, top entities).
+
+Usage:
+
+```bash
+cm history [--kind k] [--entity e] [--limit n]
+cm digest [--kind k] [--entity e] [--limit n]
+```
+
+Examples:
+
+```bash
+cm history                 # full timeline + digest
+cm history --kind decision  # only decisions
+cm history --entity redis   # only memories mentioning "redis"
+cm digest --limit 5         # alias, capped to 5
+```
+
 ## Search
 
 ### `cm sq`

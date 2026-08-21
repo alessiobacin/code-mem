@@ -406,6 +406,16 @@ La bellezza di code-mem è che non ti chiude porte: è abbastanza semplice da po
 
 ---
 
+## Aggiornamento 2026: gap ormai chiusi
+
+A partire da v0.6.0, code-mem ha colmato diversi punti deboli che le tabelle precedenti segnalavano:
+
+- **Estrazione entita' (era il vantaggio di Zep):** `cm entities` estrae tecnologie, file/moduli e simboli dai corpi delle memorie e (con `--msgs`) dalle conversazioni; `--apply` li scrive nel grafo con archi `co_occurs`. Zero dipendenze — euristiche + regex.
+- **Sintesi storica / digest (era il vantaggio di Mem0/LangMem):** `cm history` / `cm digest` mostrano una linea temporale (per kind e per mese) piu' un riassunto dell'evoluzione.
+- **Visualizzazione ed export del grafo (era il vantaggio di graphify):** `cm gx html|svg|graphml|neo4j`, `cm query` (BFS), `cm gc`, `cm scan --deep` / `--relations`.
+
+code-mem mantiene deliberatamente i suoi differenziatori: local-first, zero costi ricorrenti, offline, agent-agnostic, CLI unica. Il **sync** tra macchine/team e un'**API REST** restano fuori scope per scelta (contraddirebbero la filosofia local-first/privacy).
+
 ## Vedi anche
 
 - **[COMPARISON.md](COMPARISON.md)** — English version
