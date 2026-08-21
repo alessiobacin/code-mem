@@ -20,3 +20,13 @@ A causa dell'assenza di peer agenti (ambiente single-agent), il planner ha esegu
 **File scenari manuali:** `tests/manual-scenarios/README.md` + 8 file (01 init/setup, 02 write, 03 read, 04 grafico, 05 codice/import, 06 project/backup/watch, 07 entities, 08 history).
 
 > _[evento] piano: fase 1 completata da `planner-01`, fase 2 ora sbloccata (docs-sync) — alle 2026-08-21T18:38:02.050Z_
+
+## Round 2 — docs-sync (planner)
+
+- Aggiornato `README.md`: nuova sezione "Semantic Commands" (entities + history/digest) con usage/examples.
+- Aggiornati `docs/COMPARISON.md` e `docs/COMPARAZIONE.md`: sezione "2026/Aggiornamento — gap ormai chiusi" (entities, history, grafo) e chiarimento che sync/REST restano fuori scope per filosofia.
+- Aggiornati `docs/FILOSOFIA.md` e `skill/SKILL.md`: documentate le nuove comandi (entities, history, digest, scan/query/gx).
+- `tests/test-e2e.sh` ri-eseguito dopo i cambi docs: **94 passed / 0 failed**.
+- Worktree pronto per finalizzazione.
+
+> _[evento] report_append di `planner-01` (`planner`) alle 2026-08-21T18:38:27.806Z — stato team: planner-01(planner)=idle·io[0/1]_
