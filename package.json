@@ -1,0 +1,7 @@
+{
+  "name": "cm-dev",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "FF coefficient, vedere README cm"
+}
