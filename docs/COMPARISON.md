@@ -405,6 +405,16 @@ The beauty of code-mem is that it doesn't lock you out: it's simple enough to tr
 
 ---
 
+## 2026 Update: previously-open Feature Gaps Closed
+
+Since v0.6.0, code-mem closed several gaps that earlier tables flagged as weaknesses:
+
+- **Entity extraction (was Zep's edge):** `cm entities` extracts technologies, files/modules and symbols from memory bodies and conversations, and `--apply` writes them into the graph (with `co_occurs` edges). Zero dependencies — heuristic + regex.
+- **History summarization / evolution digest (was Mem0/LangMem's edge):** `cm history` / `cm digest` show a timeline (by kind/month) plus a condensed evolution summary.
+- **Visualization & graph export (was graphify's edge):** `cm gx html|svg|graphml|neo4j`, `cm query` (BFS), `cm cg`, `cm scan --deep` / `--relations`.
+
+code-mem deliberately keeps its differentiators: local-first, zero recurring cost, offline, agent-agnostic, single CLI. Cross-machine/team **sync** and a **REST API** remain out of scope by design (they would contradict the local-first/privacy philosophy).
+
 ## See Also
 
 - **[PHILOSOPHY.md](PHILOSOPHY.md)** — the full philosophy behind code-mem: local-first, kinds and layers, deterministic retrieval, zero dependencies, why simplicity wins
