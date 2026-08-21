@@ -1,0 +1,38 @@
+erDiagram
+    NODE ||--o{ LINK : "source"
+    NODE ||--o{ LINK : "target"
+    NODE ||--o{ HYPEREDGE : "member of"
+
+    NODE {
+        text id PK "e.g. <filestem>_<entity>"
+        text label "human readable"
+        text norm_label "normalized for matching"
+        text file_type "code|document|paper|image"
+        text source_file
+        text source_location "nullable"
+        text source_url "nullable"
+        text community "assigned by Louvain"
+        text author "nullable"
+        text contributor "nullable"
+    }
+
+    LINK {
+        text source PK,FK
+        text target PK,FK
+        text relation PK "calls|implements|references|cites|contains|semantically_similar_to|rationale_for..."
+        text confidence "EXTRACTED|INFERRED|AMBIGUOUS"
+        real confidence_score "1.0 / 0.6-0.9 / 0.1-0.3"
+        real weight "default 1.0"
+        text source_file
+        text source_location
+    }
+
+    HYPEREDGE {
+        text id PK "snake_case_id"
+        text label "human readable"
+        text relation "participate_in|implement|form"
+        text confidence "EXTRACTED|INFERRED"
+        real confidence_score
+        text nodes "3+ node ids"
+        text source_file
+    }

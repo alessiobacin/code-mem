@@ -1,0 +1,48 @@
+erDiagram
+    SDK_SESSIONS ||--o{ OBSERVATIONS : "contains"
+    SDK_SESSIONS ||--o| SESSION_SUMMARIES : "summarized by"
+
+    SCHEMA_VERSIONS {
+        int id PK
+        int version UK
+        text applied_at
+    }
+
+    SDK_SESSIONS {
+        int id PK
+        text content_session_id UK
+        text memory_session_id UK
+        text project
+        text user_prompt
+        text started_at
+        int started_at_epoch
+        text completed_at "nullable"
+        int completed_at_epoch "nullable"
+        text status "active|completed|failed"
+    }
+
+    OBSERVATIONS {
+        int id PK
+        text memory_session_id FK "on delete cascade"
+        text project
+        text text "content of the observation"
+        text type "bugfix|feature|decision|discovery|change"
+        text created_at
+        int created_at_epoch
+    }
+
+    SESSION_SUMMARIES {
+        int id PK
+        text memory_session_id UK,FK "on delete cascade"
+        text project
+        text request
+        text investigated
+        text learned
+        text completed
+        text next_steps
+        text files_read
+        text files_edited
+        text notes
+        text created_at
+        int created_at_epoch
+    }
