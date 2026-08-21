@@ -7,5 +7,5 @@ modificare a mano, lo stato reale è in .plan.json accanto a questo file.
 
 - [x] Fase 1 (completa): coder, reviewer
       Implementazione di cm entities + cm history/digest, correzione test e2e/benchmark, scrittura file di scenari di test manuali. Coder e reviewer lavorano nello stesso worktree con ciclo interno di correzione.
-- [~] Fase 2 (sbloccata — in corso): docs-sync
+- [x] Fase 2 (completa): docs-sync
       Aggiornamento della documentazione (README + docs/COMPARISON* + FILOSOFIA/PHILOSOPHY e skill) per riflettere le nuove feature e i nuovi scenari di test manuali.

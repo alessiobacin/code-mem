@@ -30,3 +30,5 @@ A causa dell'assenza di peer agenti (ambiente single-agent), il planner ha esegu
 - Worktree pronto per finalizzazione.
 
 > _[evento] report_append di `planner-01` (`planner`) alle 2026-08-21T18:38:27.806Z — stato team: planner-01(planner)=idle·io[0/1]_
+
+> _[evento] piano: fase 2 completata da `planner-01` — era l'ultima fase — alle 2026-08-21T18:38:37.853Z_
