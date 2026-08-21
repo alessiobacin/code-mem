@@ -487,6 +487,29 @@ GS_DRY=$($CMD gs 2>&1)
 if echo "$GS_DRY" | grep -q "never_imported"; then mark_fail "dry-run imported anyway"; else mark_pass "dry-run not persisted"; fi
 echo ""
 
+# TEST 43: cm entities
+$CMD save --kind decision --title "Vitest" "Chosen Vitest over Jest for faster parallel tests" > /dev/null 2>&1
+$CMD save --kind fact "PostgreSQL with Drizzle ORM and JWT auth" > /dev/null 2>&1
+ENT=$($CMD entities --limit 10 2>&1)
+assert_grep "entities finds tech" "TypeScript" "$ENT"
+assert_grep "entities output count" "entity types" "$ENT"
+ENTA=$($CMD entities --apply 2>&1)
+assert_grep "entities apply" "applied" "$ENTA"
+GNENT=$($CMD gn "TypeScript" 2>&1)
+assert_grep "entity in graph after apply" "co_occurs" "$GNENT"
+echo ""
+
+# TEST 44: cm history / digest
+HIST=$($CMD history --limit 10 2>&1)
+assert_grep "history shows timeline" "Timeline" "$HIST"
+assert_grep "history shows digest" "Digest" "$HIST"
+assert_grep "history includes memory" "Vitest" "$HIST"
+HE=$($CMD history --entity vitest 2>&1)
+assert_grep "history entity filter" "Vitest" "$HE"
+HIST_A=$($CMD digest --limit 10 2>&1)
+assert_grep "digest alias" "Timeline" "$HIST_A"
+echo ""
+
 # ======================================================
 #  SUMMARY
 # ======================================================
