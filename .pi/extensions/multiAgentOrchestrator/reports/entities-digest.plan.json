@@ -8,7 +8,7 @@
         "reviewer"
       ],
       "note": "Implementazione di cm entities + cm history/digest, correzione test e2e/benchmark, scrittura file di scenari di test manuali. Coder e reviewer lavorano nello stesso worktree con ciclo interno di correzione.",
-      "status": "unlocked"
+      "status": "complete"
     },
     {
       "phase": 2,
@@ -16,9 +16,9 @@
         "docs-sync"
       ],
       "note": "Aggiornamento della documentazione (README + docs/COMPARISON* + FILOSOFIA/PHILOSOPHY e skill) per riflettere le nuove feature e i nuovi scenari di test manuali.",
-      "status": "locked"
+      "status": "unlocked"
     }
   ],
   "created_at": "2026-08-21T17:54:19.311Z",
-  "updated_at": "2026-08-21T17:54:19.311Z"
+  "updated_at": "2026-08-21T18:38:02.048Z"
 }

@@ -18,3 +18,5 @@ A causa dell'assenza di peer agenti (ambiente single-agent), il planner ha esegu
 **Test e2e:** `tests/test-e2e.sh` → **94 passed / 0 failed** (era 85; aggiunti TEST 43 entities e TEST 44 history).
 **Benchmark:** `tests/run-memory-benchmark.sh --cm-path <worktree cm> --from-scratch` → **15 passed / 0 failed** (i 3 fallimenti marcati sono di graphify, invariati). Storage cm 44KB vs graphify 52KB.
 **File scenari manuali:** `tests/manual-scenarios/README.md` + 8 file (01 init/setup, 02 write, 03 read, 04 grafico, 05 codice/import, 06 project/backup/watch, 07 entities, 08 history).
+
+> _[evento] piano: fase 1 completata da `planner-01`, fase 2 ora sbloccata (docs-sync) — alle 2026-08-21T18:38:02.050Z_

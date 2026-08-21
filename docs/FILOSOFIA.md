@@ -135,6 +135,16 @@ Questa è la sua filosofia. E, crediamo, la sua forza.
 
 ---
 
+## Evoluzione 2026
+
+La filosofia resta quella iniziale (local-first, zero dipendenze, agent-agnostic, determinismo), ma il perimetro si e' allargato per chiudere i gap piu' sentiti rispetto ai concorrenti, senza tradire il principio chiave:
+
+- **`cm entities`** — estrazione automatica di entita' dalle memorie/conversazioni (euristiche, nessun modello esterno) per arricchire il grafo.
+- **`cm history`/`cm digest`** — sintesi dell'evoluzione della memoria (timeline + digest per kind/mese/entita').
+- Grafo piu' completo rispetto a prima: `cm scan --deep/--relations`, `cm query`, `cm gc`, `cm gx` (html/svg/graphml/neo4j).
+
+Cio' che resta fermo: **nessun servizio cloud, nessuna API REST, nessun sync di team** — sono scelte di filosofia, non mancanze da colmare.
+
 ## Vedi anche
 
 - **[PHILOSOPHY.md](PHILOSOPHY.md)** — English version
