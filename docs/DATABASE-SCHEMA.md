@@ -14,6 +14,7 @@ erDiagram
     MEMORY_ITEMS ||--o{ MEMORY_LINKS : "target of"
     MEMORY_ITEMS ||--o| MEMORY_VECTORS : "embedding"
     MEMORY_ITEMS ||--o| MEMORY_FTS : "indexed"
+    MESSAGES ||--o| MESSAGES_FTS : "indexed"
     GRAPH_NODES ||--o{ GRAPH_EDGES : "source of"
     GRAPH_NODES ||--o{ GRAPH_EDGES : "target of"
 
@@ -89,11 +90,27 @@ erDiagram
         text metadata_json
         text created_at
     }
+
+    MESSAGES {
+        int id PK "AUTOINCREMENT"
+        text session_id "NOT NULL"
+        text role "NOT NULL: dev|agent|system"
+        text content "NOT NULL"
+        text timestamp "NOT NULL"
+    }
+
+    MESSAGES_FTS {
+        text role "FTS5 indexed column"
+        text content "FTS5 indexed column"
+        text session_id "FTS5 indexed column"
+        text timestamp "FTS5 indexed column"
+    }
 ```
 
 ## Note
 
 - **FTS5 content-sync:** `MEMORY_FTS` è una virtual table legata a `MEMORY_ITEMS` con trigger; non va scritta a mano.
+- **Capture layer:** `MESSAGES` è la tabella dei log conversazionali scritti da `cm save --auto [--role dev|agent]`, `cm recall-auto` e `cm watch` (vedi `src/capture.js`). `od()` chiama `ensureMessagesSearchTables` che crea la virtual table FTS5 `MESSAGES_FTS` (content=`MESSAGES`, content_rowid=`id`) più trigger `messages_ai`/`messages_ad` (INSERT/DELETE sync); in caso di FTS5 non disponibile ha un fallback a tabella reale. Lettori: `cm sq`, `cm entities --msgs`.
 - **Chiavi composite:** `MEMORY_LINKS` e `GRAPH_EDGES` hanno PK su `(source, target, relation)` — il fatto che un'identificazione sia `PK,FK` riflette la PK della tabella figlia, non un vincolo FK di SQLite.
 - **Self-reference:** `MEMORY_ITEMS.supersedes_id` punta a un'altra riga della stessa tabella.
 - **Projection:** `graph.json` è generato da `graph_nodes`+`graph_edges`; `MEMORY.md`/`USER.md` da `memory_items` (vedi `refreshProjections`, `syncGraphProjection`).

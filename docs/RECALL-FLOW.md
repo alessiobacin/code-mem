@@ -1,7 +1,7 @@
 # Flusso di `cm recall` (recupero ibrido)
 
 > Dettaglio della logica di retrieval. Fonte: [`docs/RECALL-FLOW.mmd`](RECALL-FLOW.mmd).
-> Code path: `main()` → `recall / explain / recall-auto` → `recallMemories()` → `scoreMemory()` → `renderRecall()`.
+> Code path: `bin/cm` dispatch → `src/retrieval.js` (`recallMemories()` → `scoreMemory()` → `renderRecall()`); `recall-auto`/`captureAutoRecall` vivono in `src/capture.js`.
 
 Obiettivo: trovare le memorie piu' rilevanti per un task combinando **ricerca deterministica + grafo + embedding opzionale**, con fallback sempre disponibile.
 

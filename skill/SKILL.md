@@ -23,12 +23,18 @@ cm update
 cm version
 ```
 
+## Help & Surface
+
+Public help is deliberately **lean**. Run `cm help --full` (or `cm --full`) to see the complete surface; corollary graph/scan/query/entities/history/import commands stay callable directly even though they are not listed in bare help.
+
 ## Core Commands
 
 - `cm save --kind decision "Use Vitest for unit tests"` - save a typed memory
 - `cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"` - save a cross-project memory
+- `cm save --auto --role dev "what was said"` - **capture layer**: write a conversation row into the `messages` table (searchable with `cm sq`)
 - `cm recall "fix flaky tests" --level 2` - retrieve relevant memory for a task
 - `cm plan "deploy preview build"` - inspect the retrieval plan
+- `cm sq "query"` - full-text search recorded messages
 - `cm recent` - list recent memories
 - `cm consolidate` - promote and normalize memories
 - `cm project` - regenerate `MEMORY.md` and `USER.md`
@@ -43,21 +49,25 @@ cm version
 - `cm ls` - list project memories
 - `cm ls-user` - list user preferences
 
-## Graph and Search
+## Corollary surfaces (shown in `cm help --full`)
+
+These command families work when called directly, but are listed only under `--full`:
+
+### Graph and Search
 
 - `cm ga <id> <label> <type>` - add graph node
 - `cm ge <src> <tgt> <rel>` - add graph edge
 - `cm gn <id>` - list graph neighbors
 - `cm gp <from> <to>` - graph path
-- `cm gi` - graph insights
+- `cm gs` / `cm gi` - graph stats / insights
 - `cm gc` - detect graph communities
 - `cm gx [html|graphml|neo4j|svg]` - export the graph
 - `cm scan --relations [--apply]` - suggest code relationships
 - `cm scan --deep` - AST deep scan
 - `cm query "question"` - BFS graph query from matched nodes
-- `cm sq "query"` - search stored conversation logs
+- `cm import --graphify <path>` / `--claude-mem` / `--json <path>` - import graph data
 
-## Semantic
+### Semantic
 
 - `cm entities [--limit n] [--msgs] [--apply]` - extract entities (tech, files, symbols) from memories (+ optional conversations)
 - `cm history [--kind k] [--entity e] [--limit n]` - timeline + digest of memory evolution

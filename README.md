@@ -18,6 +18,8 @@ It is designed to stay simple:
 
 Requires Node.js 22+. If your Node build exposes `node:sqlite` only behind `--experimental-sqlite`, `cm` re-execs itself with that flag automatically.
 
+For developers: `bin/cm` is a **generated single-file bundle**, not a hand-maintained monolith. The source of truth lives in the CommonJS fragments under `src/`, and `build/bundle.mjs` reassembles them into `bin/cm` (see [`src/README.md`](src/README.md) for the canonical fragment order). Do **not** hand-edit `bin/cm` — edit the relevant fragment in `src/` and run `node build/bundle.mjs`.
+
 ## Install
 
 ```bash
@@ -33,7 +35,11 @@ chmod +x ~/.local/bin/cm
 export PATH="$PATH:$HOME/.local/bin"
 ```
 
+Both paths distribute the **generated** `bin/cm` bundle. Source lives in `src/`; see [`src/README.md`](src/README.md) and run `node build/bundle.mjs` after editing a fragment.
+
 ## Quick Start
+
+Public help is deliberately **lean**: the corollary graph/scan/query/entities/history/digest/import surfaces are shown only with `cm help --full` (or `cm --full`); they still work when called directly.
 
 Initialize memory in a repo:
 
@@ -59,6 +65,13 @@ Save a user preference:
 ```bash
 cm save --kind preference --layer user \
   "Prefer concise answers and file references."
+```
+
+Record a conversation row into the capture layer and search it back:
+
+```bash
+cm save --auto --role dev "git worktree flow explained to agent"
+cm sq "worktree flow"
 ```
 
 Recall relevant memory for a task:
@@ -98,12 +111,15 @@ your-project/
 
 ## Architecture
 
+The CLI is modular by construction: `bin/cm` is a single-file bundle assembled from `src/` fragments by `build/bundle.mjs` (see [`src/README.md`](src/README.md)), keeping a one-file install while the code stays maintainable.
+
 `state.db` is the source of truth.
 
 - `memory_items`: typed project memories
 - `memory_context`: branch, cwd, agent, task, files, tags
 - `memory_links`: relationships between memories
-- `messages` + `messages_fts`: searchable conversation log
+- `messages` + `messages_fts`: searchable conversation log (written by the capture layer)
+- `graph_nodes` / `graph_edges`: graph persisted in SQLite
 
 `MEMORY.md` and `USER.md` are generated projections from the database. They should be treated as read-friendly outputs, not as the primary storage layer.
 
@@ -181,7 +197,14 @@ Usage:
 
 ```bash
 cm help
+cm help --full
+cm --full
 ```
+
+Notes:
+
+- Bare `cm help` prints the **lean** public surface (core memory workflow + capture).
+- `cm help --full` / `cm --full` additionally reveal the corollary graph/scan/query/entities/history/digest/import commands; they run correctly when called directly even without `--full`.
 
 ## Memory Write Commands
 
@@ -194,7 +217,12 @@ Usage:
 ```bash
 cm save [--kind KIND] [--layer LAYER] [--title TITLE] [--summary TEXT] \
   [--confidence 0.0-1.0] [--tag tag1,tag2] [--file path1,path2] [--global] <text>
+cm save --auto [--role dev|agent] <text>
 ```
+
+Notes:
+
+- `--auto` writes a **conversation row** into the `messages` table (capture layer) instead of a typed memory; `[--role dev|agent]` tags who spoke. Rows are searchable via `cm sq`.
 
 Supported kinds:
 
@@ -668,9 +696,9 @@ cm watch --daemon               # starts background daemon
 
 **What happens automatically:**
 
-- `cm watch --daemon` polls every 30s for new memories without embeddings, computes them via Ollama (`nomic-embed-text`), consolidates working/episodic items, and regenerates MEMORY.md/USER.md
-- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant project and global memories based on branch, git log, and cwd
-- During a session, the agent uses `cm save` to persist learnings, `cm touch` to mark useful items, and `cm consolidate` to promote short-term to long-term
+- `cm watch --daemon` polls every 30s for new memories without embeddings, computes them via Ollama (`nomic-embed-text`), consolidates working/episodic items, regenerates MEMORY.md/USER.md, and writes a periodic capture heartbeat row
+- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant project and global memories based on branch, git log, and cwd, and writes a capture context row
+- During a session, the agent uses `cm save` to persist learnings, `cm save --auto` to record conversation rows, `cm touch` to mark useful items, and `cm consolidate` to promote short-term to long-term
 
 **Prerequisite:** [Ollama](https://ollama.com) with `nomic-embed-text`:
 ```bash
