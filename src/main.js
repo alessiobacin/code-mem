@@ -166,7 +166,7 @@ async function main() {
     const autoRole = flags.auto ? (flags.role || "dev") : null;
     if (flags.global) {
       const gd = od(globalDbPath());
-      const result = saveMemory(gd, c, payload);
+      const result = saveMemorySemanticDedup(gd, c, payload);
       if (result.duplicate) {
         console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
       } else {
@@ -179,7 +179,7 @@ async function main() {
       }
       gd.close();
     } else {
-      const result = saveMemory(d, c, payload);
+      const result = saveMemorySemanticDedup(d, c, payload);
       if (result.duplicate) {
         console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
       } else {
@@ -219,6 +219,23 @@ async function main() {
     const result = restoreGlobalMemories(gd, c, rest[0]);
     gd.close();
     console.log(`Restored ${result.imported}/${result.total} global memories from ${result.resolved}`);
+    return;
+  }
+
+  if (cmd === "export") {
+    // Deterministic state.db bundle export (Task B merge)
+    const { flags } = parseArgs(a.slice(1));
+    const outName = String(flags.o || flags.output || flags.out || "export.json");
+    const out = exportMemoryBundle(d, c, outName);
+    console.log(`Exported bundle to ${out}`);
+    d.close();
+    return;
+  }
+
+  if (cmd === "stats") {
+    const { flags } = parseArgs(a.slice(1));
+    cmdStats(d, c);
+    d.close();
     return;
   }
 
@@ -779,7 +796,19 @@ async function main() {
       d.close(); return;
     }
 
-    console.log("Usage: cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path>");
+    // Task B: deterministic bundle merge — `cm import <export.json>`. A plain
+    // positional file (not one of the typed graph/memory imports) is treated as
+    // a merge bundle from `cm export`.
+    const bundle = a.slice(1).find((x) => x && !x.startsWith("-"));
+    if (bundle) {
+      if (!existsSync(bundle)) { console.log(`Bundle file not found: ${bundle}`); d.close(); return; }
+      const result = importMemoryBundle(d, c, bundle);
+      console.log(`Imported ${result.created} new, ${result.merged} merged, ${result.skipped} unchanged (total ${result.total})`);
+      d.close();
+      return;
+    }
+
+    console.log("Usage: cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path> | cm import <bundle.json>");
     console.log("Options: --dry-run, --replace");
     d.close();
     return;

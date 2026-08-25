@@ -16,7 +16,7 @@ function printRows(rows) {
 function replaceMemory(d, cwd, match, nextText, kindFilter) {
   const rows = listMemoryRows(
     d,
-    `WHERE mi.status='active' ${kindFilter ? "AND mi.kind = ?" : ""}`,
+    `WHERE mi.status <> 'archived' ${kindFilter ? "AND mi.kind = ?" : ""}`,
     kindFilter ? [kindFilter] : [],
     "ORDER BY mi.updated_at DESC"
   );
@@ -35,9 +35,10 @@ function replaceMemory(d, cwd, match, nextText, kindFilter) {
     process.exit(1);
   }
   const row = matches[0];
+  // A replace is a correction: the referenced memory is marked corrected.
   runStmt(
     d,
-    "UPDATE memory_items SET body=?, title=?, summary=?, updated_at=? WHERE id=?",
+    "UPDATE memory_items SET body=?, title=?, summary=?, status='corrected', updated_at=? WHERE id=?",
     [nextText, projectTitle(nextText), summarize(nextText), nowIso(), row.id]
   );
   const updated = loadMemoryRow(d, row.id);

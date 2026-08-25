@@ -13,7 +13,7 @@ set -u
 CMD="node $(cd "$(dirname "$0")/../.." && pwd)/bin/cm"
 PASS=0; FAIL=0; RED=0; SKIP=0
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-check() { local label="$1" s="$2"; case "$s" in
+check() { local label="$1" matcher="$2" s="$3"; case "$s" in
   PASS) PASS=$((PASS+1)); echo "  ✅ $label";;
   RED)  RED=$((RED+1));  echo "  🔴 RED   $label";;
   SKIP) SKIP=$((SKIP+1));echo "  ⏭  SKIP $label";;
