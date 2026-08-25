@@ -1,8 +1,9 @@
 # Architettura e flusso logico di code-mem
 
-> Rappresentazione dettagliata della logica del CLI `cm` (file `bin/cm`, ~4250 righe).
+> Rappresentazione dettagliata della logica del CLI `cm` (generato in `bin/cm` dal bundle
+> `build/bundle.mjs`, sorgente in 18 frammenti ordinati sotto `src/` — vedi `src/README.md`).
 > Il diagramma ripercorre: avvio, inizializzazione, apertura store, e il dispatch dei comandi
-> (scrittura, lettura/recall, grafo, scan, query/entità, history, ricerca, manutenzione).
+> (scrittura, lettura/recall, capture, grafo, scan, query/entità, history, ricerca, manutenzione).
 
 Fonte del diagramma: [`docs/ARCHITECTURE.mmd`](ARCHITECTURE.mmd) (rendered con Mermaid).
 
@@ -18,7 +19,7 @@ flowchart TD
     Args --> CmdDispatch{cmd?}
 
     %% ── GLOBAL SETUP COMMANDS ──
-    CmdDispatch -->|"help | -h"| Help[Print full help]
+    CmdDispatch -->|"help | -h"| Help[Print lean help; --full reveals corollary surfaces]
     CmdDispatch -->|"version"| Version[Print VERSION]
     CmdDispatch -->|"setup"| Setup[Install cm skill into harnesses]
     CmdDispatch -->|"update"| Update[Check GitHub main → download bin/cm → replace]
@@ -124,7 +125,9 @@ flowchart TD
 
 ## Note
 
-- **Dispatcher unico:** l'intera logica è nel singolo `bin/cm`: `main()` apre `state.db` (con fallback `--experimental-sqlite`) e instrada i comandi.
+- **Dispatcher unico:** `bin/cm` è un **bundle generato** (build/bundle.mjs) che ricompone 18 frammenti `src/` in un singolo file CommonJS; `main()` apre `state.db` (con fallback `--experimental-sqlite`) e instrada i comandi.
 - **`state.db` è la source of truth;** `graph.json` e `MEMORY.md`/`USER.md` sono proiezioni rigenerabili.
 - **Ricerca ibrida:** `recall` fonde FTS/trigram, termini di grafo, espansione dei link (BFS) e (opzionale) embedding Ollama; fallback sempre a trigram se Ollama è assente.
 - **Nuove feature 2026:** `cm entities` (estrazione entità + `--apply` nel grafo) e `cm history`/`cm digest` (timeline + riassunto evolutivo); vedi anche `tests/manual-scenarios/07-entities.md` e `08-history-digest.md`.
+- **Obscuramento (Task A):** l'help pubblico (`cm help`) è snello; le superfici corollario (graph: ga/ge/gn/gp/gc/gx/gs/gi, scan, query, entities, history/digest, import, sq) compaiono solo con `cm help --full` / `cm --full`. I comandi restano chiamabili direttamente (API invariata).
+- **Capture layer (Task A):** la tabella `messages` + FTS5 (`messages_fts`) è ora viva grazie a `src/capture.js`; `cm save --auto [--role dev|agent]`, `cm recall-auto` (riga contesto SessionStart) e `cm watch` (heartbeat) scrivono righe; `od()` chiama `ensureMessagesSearchTables` così i trigger FTS indicizzano ogni INSERT. Lettori: `cm sq`, `cm entities --msgs`.

@@ -7,7 +7,7 @@ flowchart TD
     Args --> CmdDispatch{cmd?}
 
     %% ── GLOBAL SETUP COMMANDS ──
-    CmdDispatch -->|"help | -h"| Help[Print full help]
+    CmdDispatch -->|"help | -h"| Help[Print lean help; --full reveals corollary]
     CmdDispatch -->|"version"| Version[Print VERSION]
     CmdDispatch -->|"setup"| Setup[Install cm skill into harnesses]
     CmdDispatch -->|"update"| Update[Check GitHub main → download bin/cm → replace]

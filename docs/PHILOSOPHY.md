@@ -102,7 +102,11 @@ No sync, no real-time collaboration, no hosted backend. Memory is still local to
 
 ### It's not (only) a knowledge graph
 
-`graph.json` stays lightweight: typed nodes and related edges, with deterministic traversal. Since 0.6.0 code-mem added lightweight graph capabilities without a runtime: `cm scan --deep/--relations`, `cm query` (BFS), `cm gc` (community detection), `cm gx` (html/svg/graphml/neo4j exports), and `cm entities --apply` (auto-extracted entity nodes + `co_occurs` edges). For deep architectural exploration at scale, graphify is still the heavier, dedicated tool — code-mem trades depth for zero dependency and simplicity.
+`graph.json` stays lightweight: typed nodes and related edges, with deterministic traversal. Since 0.6.0 code-mem added lightweight graph capabilities without a runtime: `cm scan --deep/--relations`, `cm query` (BFS), `cm gc` (community detection), `cm gx` (html/svg/graphml/neo4j exports), and `cm entities --apply` (auto-extracted entity nodes + `co_occurs` edges). These corollary surfaces are shown in help only with `cm help --full` (described in Task A as *obscuramento* — the public help stays lean, while the commands remain callable directly). For deep architectural exploration at scale, graphify is still the heavier, dedicated tool — code-mem trades depth for zero dependency and simplicity.
+
+### It captures conversation, not just memories
+
+Since Task A, code-mem records a live `messages` log in `state.db` (FTS5 via `messages_fts` + triggers wired by `od()` → `ensureMessagesSearchTables`). Writers: `cm save --auto [--role dev|agent]` (a raw conversation row), `cm recall-auto` (SessionStart context), and `cm watch` (daemon heartbeat). Readers: `cm sq <query>` and `cm entities --msgs`. This stays local-first: the log lives in the same SQLite file, needs no service, and rounds out the memory model with a searchable record of what was actually said.
 
 ## The Ideal Workflow
 
@@ -120,6 +124,8 @@ Daily use:
   cm consolidate                  # after an intense session
   cm entities --apply             # extract entities into the graph when crossing into new areas
   cm history                      # review the memory timeline + evolution digest
+  cm save --auto --role dev "..." # record a conversation row (capture layer)
+  cm sq "..."                     # search recorded messages
 
 Automatic:
   cm watch --daemon               # background embedding + consolidation
