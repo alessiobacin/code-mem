@@ -38,8 +38,8 @@ function replaceMemory(d, cwd, match, nextText, kindFilter) {
   // A replace is a correction: the referenced memory is marked corrected.
   runStmt(
     d,
-    "UPDATE memory_items SET body=?, title=?, summary=?, status='corrected', updated_at=? WHERE id=?",
-    [nextText, projectTitle(nextText), summarize(nextText), nowIso(), row.id]
+    "UPDATE memory_items SET body=?, title=?, summary=?, status='corrected', corrected_by=?, updated_at=? WHERE id=?",
+    [nextText, projectTitle(nextText), summarize(nextText), inferAgent(), nowIso(), row.id]
   );
   const updated = loadMemoryRow(d, row.id);
   updateFtsRow(d, updated);

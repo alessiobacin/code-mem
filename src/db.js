@@ -68,8 +68,24 @@ function od(p) {
   `);
   ensureGraphTables(d);
   ensureMessagesSearchTables(d);
+  ensureMigrationColumns(d);
   ensureRecallIndexes(d);
   return d;
+}
+
+function ensureMigrationColumns(d) {
+  // Lifecycle migration (Task B, Phase 3) — additive and idempotent so it never
+  // breaks pre-existing installations. Adds lightweight provenance columns the
+  // correction lifecycle writes; failures degrade gracefully (column simply
+  // isn't present, status tracking still works).
+  try {
+    const cols = new Set(
+      allStmt(d, "PRAGMA table_info(memory_items)").map((c) => c.name)
+    );
+    if (!cols.has("corrected_by")) {
+      runStmt(d, "ALTER TABLE memory_items ADD COLUMN corrected_by TEXT");
+    }
+  } catch { /* non-fatal: ignore migration errors on legacy DBs */ }
 }
 
 function ensureMessagesSearchTables(d) {
@@ -180,6 +196,7 @@ function ensureRecallIndexes(d) {
 function runStmt(d, sql, params = []) {
   return d.prepare(sql).run(...params);
 }
+
 
 function allStmt(d, sql, params = []) {
   return d.prepare(sql).all(...params);

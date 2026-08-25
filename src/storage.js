@@ -182,7 +182,7 @@ function applyCorrectionStatus(d, body) {
     const titleLow = String(row.title || "").trim().toLowerCase();
     const hits = (bodyLow && c.ref.toLowerCase().includes(bodyLow)) || (titleLow && c.ref.toLowerCase().includes(titleLow));
     if (!hits) continue;
-    runStmt(d, "UPDATE memory_items SET status=?, updated_at=? WHERE id=?", [c.status, nowIso(), row.id]);
+    runStmt(d, "UPDATE memory_items SET status=?, corrected_by=?, updated_at=? WHERE id=?", [c.status, inferAgent(), nowIso(), row.id]);
     updateFtsRow(d, row);
     marked += 1;
   }
