@@ -4,9 +4,9 @@ Run: 2026-09-01, 40 sequential `cm save`, 30 recall queries, 15 synthetic ground
 
 | System | Write burst (40) | Avg write | Recall p50 | Recall p95 | Accuracy top-3 |
 |---|---:|---:|---:|---:|---:|
-| A1 baseline | 3.738 s | 93.5 ms/op | 0.240 s | 0.367 s | 66.7% (10/15) |
-| A2 current | 5.566 s | 139.2 ms/op | 0.188 s | 0.325 s | 66.7% (10/15) |
-| Delta | +48.9% | +48.9% | -21.7% | -11.4% | 0.0 pp |
+| A1 baseline | 2.200 s | 55.0 ms/op | 0.086 s | 0.098 s | 60.0% (9/15) |
+| A2 current | 2.267 s | 56.7 ms/op | 0.097 s | 0.148 s | 60.0% (9/15) |
+| Delta | +3.0% | +3.1% | +12.8% | +51.0% | 0.0 pp |
 
 ## Native proxy (domain-asymmetric)
 
