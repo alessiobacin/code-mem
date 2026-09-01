@@ -121,6 +121,8 @@ The CLI is modular by construction: `bin/cm` is a single-file bundle assembled f
 - `messages` + `messages_fts`: searchable conversation log (written by the capture layer)
 - `graph_nodes` / `graph_edges`: graph persisted in SQLite
 
+`memory_items` and `memory_context` are written transactionally: multi-statement write sequences (upsert + context row, item + trigram vector) run inside `BEGIN IMMEDIATE`/`COMMIT` with `ROLLBACK` on failure, so a crash or a failed statement can never leave half-written rows. The `cm watch` daemon recovers from stale lock files by checking whether the recorded PID is still alive before refusing to start.
+
 `MEMORY.md` and `USER.md` are generated projections from the database. They should be treated as read-friendly outputs, not as the primary storage layer.
 
 ## Command Reference
@@ -174,6 +176,7 @@ cm update --force
 Notes:
 
 - `cm update` resolves the latest `main` commit on GitHub, then compares both the local CLI version and the installed file contents with that exact remote revision.
+- **Integrity gate:** before any local file is replaced, the downloaded bundle's SHA-256 digest is verified against the published remote manifest (`bin/cm.sha256`). On mismatch the update aborts and nothing is written; an older mirror without a manifest only triggers a warning. The download base can be overridden with the `CM_UPDATE_BASE` environment variable (used by the integrity tests to exercise the gate against a local mirror).
 - `--force` reinstalls even if the versions match.
 - The command updates the current executable path and rewrites harness skill files when possible.
 
@@ -441,6 +444,10 @@ Notes:
 - Project and global memories are ranked together.
 - Global results are labeled as `[global]` in the output.
 
+### `cm recall-auto`
+
+The automatic SessionStart recall (also runnable directly). It retrieves memories from the current context (branch, git log, cwd) and applies a **multi-round temperature re-ranking** before rendering: three successive re-ranking rounds run a softmax over the composite signal score with a falling temperature (`T0/r`, colder and more decisive each round), accumulating an EM-like cross-round consensus. Round 1 is order-identical to the single-pass baseline — `cm recall` and the other modes are untouched — while later rounds promote candidates whose mixed signals hold up under scrutiny and demote borderline ones. Output scores are re-scaled to `[0,1]`, and repeated runs are deterministic.
+
 ### `cm backup`
 
 Create a filesystem backup of stored memories.
@@ -661,6 +668,8 @@ Ranking considers:
 - **trigram similarity** — fallback embedding che cattura varianti morfologiche e refusi senza modelli esterni
 - **Ollama embedding** (opzionale) — similarità semantica via `nomic-embed-text`
 
+`cm recall-auto` adds a multi-round temperature re-ranking on top of the same score: three softmax rounds with falling temperature (`T0/r`) accumulate a cross-round consensus before the context block is rendered, so stable all-round matches outrank borderline ones. Round 1 is strictly monotonic in the base score, so `cm recall` itself is unchanged.
+
 No external model is required for retrieval. If Ollama is present, it is preferred; if absent, trigram similarity provides semantic-like matching at zero dependency cost.
 
 ## Recommended Workflow
@@ -697,7 +706,7 @@ cm watch --daemon               # starts background daemon
 **What happens automatically:**
 
 - `cm watch --daemon` polls every 30s for new memories without embeddings, computes them via Ollama (`nomic-embed-text`), consolidates working/episodic items, regenerates MEMORY.md/USER.md, and writes a periodic capture heartbeat row
-- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant project and global memories based on branch, git log, and cwd, and writes a capture context row
+- The `SessionStart` hook runs `cm recall-auto` at each Claude Code session start, injecting relevant project and global memories based on branch, git log, and cwd (re-ranked across three temperature rounds), and writes a capture context row
 - During a session, the agent uses `cm save` to persist learnings, `cm save --auto` to record conversation rows, `cm touch` to mark useful items, and `cm consolidate` to promote short-term to long-term
 
 **Prerequisite:** [Ollama](https://ollama.com) with `nomic-embed-text`:
@@ -740,5 +749,6 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 
 - **[docs/PHILOSOPHY.md](docs/PHILOSOPHY.md)** — design philosophy: local-first, kinds & layers, deterministic recall, zero dependencies, why simplicity wins
 - **[docs/COMPARISON.md](docs/COMPARISON.md)** — detailed comparison with claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, and Letta (MemGPT)
+- **[tests/benchmark-comparison.md](tests/benchmark-comparison.md)** — reproducible comparative benchmark vs a detwin-class proxy (write/recall latency, top-3 accuracy), with evaluation notes in [tests/benchmark-opinion.md](tests/benchmark-opinion.md)
 - **(IT) [docs/FILOSOFIA.md](docs/FILOSOFIA.md)** — versione italiana della filosofia
 - **(IT) [docs/COMPARAZIONE.md](docs/COMPARAZIONE.md)** — versione italiana della comparazione

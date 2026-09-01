@@ -420,3 +420,4 @@ code-mem mantiene deliberatamente i suoi differenziatori: local-first, zero cost
 
 - **[COMPARISON.md](COMPARISON.md)** — English version
 - **[FILOSOFIA.md](FILOSOFIA.md)** — la filosofia alla base del progetto
+- **[../tests/benchmark-comparison.md](../tests/benchmark-comparison.md)** — benchmark comparativo riproducibile (latenza + accuratezza top-3), con note di valutazione in [../tests/benchmark-opinion.md](../tests/benchmark-opinion.md)

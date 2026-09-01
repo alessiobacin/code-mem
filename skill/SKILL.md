@@ -33,6 +33,7 @@ Public help is deliberately **lean**. Run `cm help --full` (or `cm --full`) to s
 - `cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"` - save a cross-project memory
 - `cm save --auto --role dev "what was said"` - **capture layer**: write a conversation row into the `messages` table (searchable with `cm sq`)
 - `cm recall "fix flaky tests" --level 2` - retrieve relevant memory for a task
+- `cm recall-auto` - SessionStart contextual recall, re-ranked over three temperature rounds (EM-like consensus)
 - `cm plan "deploy preview build"` - inspect the retrieval plan
 - `cm sq "query"` - full-text search recorded messages
 - `cm recent` - list recent memories
@@ -72,6 +73,12 @@ These command families work when called directly, but are listed only under `--f
 - `cm entities [--limit n] [--msgs] [--apply]` - extract entities (tech, files, symbols) from memories (+ optional conversations)
 - `cm history [--kind k] [--entity e] [--limit n]` - timeline + digest of memory evolution
 - `cm digest` - alias of `cm history`
+
+## Reliability
+
+- Memory writes are transactional (`BEGIN IMMEDIATE`/`COMMIT` with rollback), so a crash never leaves half-written rows.
+- `cm watch` recovers from stale lock files left by dead processes (PID liveness check).
+- `cm update` verifies the downloaded bundle's SHA-256 against the published `bin/cm.sha256` manifest before installing; on mismatch it refuses and writes nothing.
 
 ## Guidelines
 
