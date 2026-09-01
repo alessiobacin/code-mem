@@ -182,9 +182,11 @@ PEOF
     local q expect out
     q="${BENCH_QUERIES[$((i % ${#BENCH_QUERIES[@]}))]}"
     expect="${BENCH_EXPECT[$((i % ${#BENCH_EXPECT[@]}))]}"
-    out=$(run_t 30 "$cm" recall "$q" 2>/dev/null | head -20)
+    # Keep only the first three ranked memory bullets.  Recall output may be
+    # empty on timeout/degradation; awk then yields an empty string safely.
+    out=$(run_t 30 "$cm" recall "$q" 2>/dev/null | awk '/^\[mem_/ { print; count++; if (count == 3) exit }')
     total=$((total + 1))
-    if printf '%s' "$out" | grep -qi "$expect"; then hits=$((hits + 1)); fi
+    if [[ -n "$out" ]] && printf '%s\n' "$out" | grep -qi -- "$expect"; then hits=$((hits + 1)); fi
   done
   python3 - "$hits" "$total" "$csv" "$label" <<'PEOF'
 import sys
