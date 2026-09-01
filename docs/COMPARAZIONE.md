@@ -413,6 +413,9 @@ A partire da v0.6.0, code-mem ha colmato diversi punti deboli che le tabelle pre
 - **Estrazione entita' (era il vantaggio di Zep):** `cm entities` estrae tecnologie, file/moduli e simboli dai corpi delle memorie e (con `--msgs`) dalle conversazioni; `--apply` li scrive nel grafo con archi `co_occurs`. Zero dipendenze — euristiche + regex.
 - **Sintesi storica / digest (era il vantaggio di Mem0/LangMem):** `cm history` / `cm digest` mostrano una linea temporale (per kind e per mese) piu' un riassunto dell'evoluzione.
 - **Visualizzazione ed export del grafo (era il vantaggio di graphify):** `cm gx html|svg|graphml|neo4j`, `cm query` (BFS), `cm gc`, `cm scan --deep` / `--relations`.
+- **Lifecycle delle correzioni (era il vantaggio di Letta/Mem0):** un save che inizia con `contested:` / `corrected:` / `obsolete:` transiziona la memoria precedente referenziata a quello stato (con provenance `corrected_by`) invece di lasciare un quasi-duplicato stantio in recall; `cm replace` marca la memoria `corrected` allo stesso modo.
+- **Merge deterministico tra progetti:** `cm export` scrive un bundle JSON dell'intero set di memorie di `state.db` e `cm import <bundle.json>` lo fonde in modo idempotente (nuovi id creati, id esistenti aggiornati solo se l'`updated_at` in arrivo e' piu' recente — last-write-wins; il re-import e' un no-op), con lo status di lifecycle che sopravvive al round-trip.
+- **Metrica di valore:** `cm stats` riporta memorie attive, recall conservati (somma di `access_count`), stima del tempo risparmiato e una cifra `value` unica — tutto calcolato in modo deterministico dai dati reali.
 
 code-mem mantiene deliberatamente i suoi differenziatori: local-first, zero costi ricorrenti, offline, agent-agnostic, CLI unica. Il **sync** tra macchine/team e un'**API REST** restano fuori scope per scelta (contraddirebbero la filosofia local-first/privacy).
 

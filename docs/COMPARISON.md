@@ -412,6 +412,9 @@ Since v0.6.0, code-mem closed several gaps that earlier tables flagged as weakne
 - **Entity extraction (was Zep's edge):** `cm entities` extracts technologies, files/modules and symbols from memory bodies and conversations, and `--apply` writes them into the graph (with `co_occurs` edges). Zero dependencies — heuristic + regex.
 - **History summarization / evolution digest (was Mem0/LangMem's edge):** `cm history` / `cm digest` show a timeline (by kind/month) plus a condensed evolution summary.
 - **Visualization & graph export (was graphify's edge):** `cm gx html|svg|graphml|neo4j`, `cm query` (BFS), `cm cg`, `cm scan --deep` / `--relations`.
+- **Correction lifecycle (was Letta/Mem0's edge):** a save starting with `contested:` / `corrected:` / `obsolete:` transitions the referenced prior memory to that status (with `corrected_by` provenance) instead of leaving a stale near-duplicate in recall; `cm replace` marks the memory `corrected` the same way.
+- **Deterministic project-to-project merge:** `cm export` writes a JSON bundle of the full `state.db` memory set and `cm import <bundle.json>` merges it idempotently (new ids created, existing ids updated only when the incoming `updated_at` is newer — last-write-wins; re-import is a no-op), with lifecycle status surviving the round-trip.
+- **Value metric:** `cm stats` reports active memories, conserved recalls (sum of `access_count`), an estimated time saved, and a single `value` figure — all computed deterministically from real data.
 
 code-mem deliberately keeps its differentiators: local-first, zero recurring cost, offline, agent-agnostic, single CLI. Cross-machine/team **sync** and a **REST API** remain out of scope by design (they would contradict the local-first/privacy philosophy).
 

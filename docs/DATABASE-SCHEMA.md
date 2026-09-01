@@ -27,7 +27,7 @@ erDiagram
         real confidence "0.0-1.0"
         real salience "0.0-1.0"
         text source "manual|scan|legacy-import|claude-mem"
-        text status "active|archived"
+        text status "active|archived|contested|corrected|obsolete"
         text created_at
         text updated_at
         text last_accessed_at
@@ -35,6 +35,7 @@ erDiagram
         text valid_from
         text valid_to
         text supersedes_id "self-reference"
+        text corrected_by "agente che ha marcato contested/corrected/obsolete (migrazione additiva)"
         text hash UK
     }
 

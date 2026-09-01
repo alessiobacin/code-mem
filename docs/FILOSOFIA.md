@@ -144,6 +144,11 @@ La filosofia resta quella iniziale (local-first, zero dipendenze, agent-agnostic
 - **`cm entities`** — estrazione automatica di entita' dalle memorie/conversazioni (euristiche, nessun modello esterno) per arricchire il grafo.
 - **`cm history`/`cm digest`** — sintesi dell'evoluzione della memoria (timeline + digest per kind/mese/entita').
 - Grafo piu' completo rispetto a prima: `cm scan --deep/--relations`, `cm query`, `cm gc`, `cm gx` (html/svg/graphml/neo4j).
+- **`cm save` con dedup semantico** — ogni salvataggio calcola un vettore trigram (quantizzato Int8 in `memory_vectors`, con upgrade opzionale via Ollama) e blocca i quasi-duplicati (>0.65 di similarita'); con `--force` si salva comunque.
+- **Lifecycle delle correzioni** — un save `contested:/corrected:/obsolete:` transiziona la memoria precedente (con `corrected_by` come provenance) invece di accumulare duplicati stanti.
+- **`cm export` / `cm import <bundle.json>`** — merge deterministico e idempotente tra progetti (last-write-wins per `updated_at`).
+- **`cm stats`** — metrica di valore deterministica (memorie attive, recall conservati, tempo risparmiato stimato).
+- **`cm recall --mode keyword|hybrid|semantic`** — il ranking puo' essere ribilanciato: `semantic` domina la similarita' (0.55), `keyword` salta gli embedding, `hybrid` resta il default.
 
 Cio' che resta fermo: **nessun servizio cloud, nessuna API REST, nessun sync di team** — sono scelte di filosofia, non mancanze da colmare.
 

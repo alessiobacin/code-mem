@@ -147,6 +147,8 @@ The philosophy stays the same (local-first, zero dependencies, agent-agnostic, d
 
 What stays fixed: **no cloud service, no REST API, no team/cloud sync** — those are deliberate philosophy choices, not gaps to fill.
 
+The same determinism now extends to memory maintenance itself: saves are deduplicated by trigram vector similarity (>0.65 — `--force` overrides), corrections go through a lifecycle (`contested:`/`corrected:`/`obsolete:` transitions with `corrected_by` provenance rather than stale near-duplicates), `cm export` / `cm import <bundle.json>` merge project databases deterministically (last-write-wins by `updated_at`, re-import is a no-op), `cm recall` accepts `--mode keyword|hybrid|semantic` to rebalance ranking, and `cm stats` turns the same real data into a deterministic value metric.
+
 ## See Also
 
 - **[COMPARISON.md](COMPARISON.md)** — detailed comparison with other memory systems
