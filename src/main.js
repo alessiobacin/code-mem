@@ -130,6 +130,9 @@ async function main() {
     // Capture layer: record this SessionStart context in the messages log.
     captureAutoRecall(d, c);
     recallMemories(d, c, q, 1, 8, "hybrid").then((recalled) => {
+      // A1: successive re-ranking rounds weigh signals with rising severity
+      // (temperature falls each round) before the context block is rendered.
+      recalled.ranked = temperatureRerank(recalled.ranked, { rounds: TEMPERATURE_RERANK_DEFAULT_ROUNDS });
       console.log("## Contextual Memory (auto-recall)");
       if (!recalled.ranked.length) {
         console.log("No relevant memories from current context.");

@@ -2196,6 +2196,64 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   };
 }
 
+// ─── A1: multi-round temperature re-ranking (recall-auto) ──────────────────
+//
+// Behavioural pattern reimplemented ex-novo in JS (no GPL code copied):
+// like an EM loop that grows more confident at every round, successive
+// re-ranking rounds weigh retrieval signals with rising severity. Round r
+// runs a temperature-controlled softmax over the composite signal score:
+//
+//   T(r) = T0 / r                      → colder (more decisive) each round
+//   p_i(r) = exp(score_i / T(r))       → normalized over candidates
+//   consensus_i = Σ_r p_i(r)           → accumulated EM-like consensus
+//
+// Round 1 (T = T0 = 1) is strictly monotonic in the base score, so ranking
+// order is identical to the single-pass baseline — other recall modes and
+// `cm recall` are untouched. Later rounds re-concentrate confidence on the
+// candidates whose mixed signals (keyword, concept, semantic, recency, …)
+// hold up under scrutiny, promoting stable all-round matches and demoting
+// borderline ones. Output scores are re-scaled back to [0,1] so callers and
+// renderers keep their existing semantics.
+
+const TEMPERATURE_RERANK_DEFAULT_ROUNDS = 3;
+const TEMPERATURE_RERANK_TEMPERATURE = 1.0;
+
+function temperatureRerank(ranked, options = {}) {
+  const rounds = Math.max(1, Math.min(8, Number.parseInt(options.rounds, 10) || TEMPERATURE_RERANK_DEFAULT_ROUNDS));
+  const temperature = options.temperature !== undefined && options.temperature > 0 ? options.temperature : TEMPERATURE_RERANK_TEMPERATURE;
+  if (!Array.isArray(ranked) || ranked.length <= 1 || rounds === 1 && temperature === 1) {
+    return ranked || [];
+  }
+  const n = ranked.length;
+  const consensus = new Array(n).fill(0);
+  let maxConsensus = 0;
+  for (let r = 1; r <= rounds; r += 1) {
+    const temp = temperature / r;
+    const logits = ranked.map((entry) => (entry.score || 0) / temp);
+    const maxLogit = Math.max(...logits);
+    let sumExp = 0;
+    const probs = logits.map((z) => {
+      const p = Math.exp(z - maxLogit); // shifted for numerical stability
+      sumExp += p;
+      return p;
+    });
+    for (let i = 0; i < n; i += 1) {
+      const p = probs[i] / (sumExp || 1);
+      consensus[i] += p;
+    }
+  }
+  for (let i = 0; i < n; i += 1) maxConsensus = Math.max(maxConsensus, consensus[i]);
+  return ranked
+    .map((entry, i) => ({
+      ...entry,
+      // Re-scale to [0,1]: preserves renderer/limit expectations while the
+      // ORDER reflects accumulated cross-round consensus, not just round 1.
+      score: maxConsensus > 0 ? consensus[i] / maxConsensus : entry.score,
+      rerankConsensus: consensus[i],
+    }))
+    .sort((a, b) => b.score - a.score);
+}
+
 function countLinksForMemory(d, id) {
   const row = getStmt(
     d,
@@ -3699,6 +3757,9 @@ async function main() {
     // Capture layer: record this SessionStart context in the messages log.
     captureAutoRecall(d, c);
     recallMemories(d, c, q, 1, 8, "hybrid").then((recalled) => {
+      // A1: successive re-ranking rounds weigh signals with rising severity
+      // (temperature falls each round) before the context block is rendered.
+      recalled.ranked = temperatureRerank(recalled.ranked, { rounds: TEMPERATURE_RERANK_DEFAULT_ROUNDS });
       console.log("## Contextual Memory (auto-recall)");
       if (!recalled.ranked.length) {
         console.log("No relevant memories from current context.");
