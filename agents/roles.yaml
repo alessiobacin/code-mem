@@ -1,0 +1,15 @@
+# Project roster (Yano "team dinamico"). Created by planner-01 during the
+# cm-merge-vector recovery: the global catalog's schema-migrator entry declares
+# MongoDB prerequisites (skill database-migration, cli mongosh, mcp mongodb)
+# that this SQLite-only project does not use. The project-local declaration is
+# authoritative (see scripts/doctor.mjs readRoleConfig: agents/roles.yaml wins
+# over the package roster), so schema-migrator is redeclared here with the
+# capabilities this project actually has. Other roles inherit from .pi/agents.
+roles:
+  schema-migrator:
+    label: "Schema Migrator / ORM Optimizer (SQLite)"
+    brief: "Gestisci le migrazioni del database SQLite di code-mem (state.db): colonne additive e idempotenti con PRAGMA table_info guard, indici per le query di recall/proiezione, verifica di coerenza schema↔codice dopo le modifiche dello storage. Analizzi le query scritte dal coder e suggerisci indici specifici solo quando mancano davvero."
+    model: { provider: llmproxy, model: coding-model }
+    skills: [yano-planner-trace-analysis, yano-cli]
+    cli: [git, npm, npx]
+    teams: [core, backend]
