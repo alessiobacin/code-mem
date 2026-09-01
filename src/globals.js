@@ -16,6 +16,7 @@ const {
 const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
+const { createHash } = require("crypto");
 const readline = require("readline");
 const VERSION = "0.6.0";
 const OLLAMA_BASE = "http://localhost:11434";
