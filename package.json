@@ -3,5 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Progetto \"code-mem\", orchestrato con yano-orchestrator."
+  "description": "Progetto \"code-mem\", orchestrato con yano-orchestrator.",
+  "scripts": {
+    "build": "node build/bundle.mjs",
+    "test": "node --test tests/non-regression/cm-cli.test.mjs"
+  }
 }

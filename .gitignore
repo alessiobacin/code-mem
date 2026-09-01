@@ -17,8 +17,8 @@ state.db
 .env*
 !.env.example
 
+# Local MCP config (real keys) — example files are committed
+.mcp.json
+
 # yano-orchestrator runtime workspace
 .pi/
-
-# Generated benchmark/test state db
-state.db
