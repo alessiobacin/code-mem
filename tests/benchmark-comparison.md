@@ -1,33 +1,17 @@
-# Memory Benchmark: cm vs graphify
+# Comparative Benchmark: code-mem vs detwin-class proxy
 
-Risultati dei benchmark eseguiti il 2026-07-16 14:21:14.
+Run: 2026-09-01, 40 sequential `cm save`, 30 recall queries, 15 synthetic ground-truth paraphrases. Baseline is A1-only commit `e7b9aff`; current is post-A2 commit `5143409`. Both rebuilt and run with identical protocol.
 
-| # | Sistema | Operazione | Tempo (s) | Esito | Dettaglio |
-|---|---------|------------|-----------|-------|-----------|
-| 1 | cm | init | .104s | ✅ | ok |
-| 2 | graphify | pipeline | .252s | ❌ | graph.json found |
-| 3 | cm | save_batch_10 | .681s | ✅ | saved 9 entries |
-| 4 | graphify | update | .246s | ✅ | graph.json updated |
-| 5 | cm | recall_exact | .276s | ✅ | TypeScript found |
-| 6 | graphify | query_exact | .161s | ✅ | graph contains TypeScript |
-| 7 | cm | recall_fuzzy | .168s | ✅ | trigram match |
-| 8 | graphify | explain | .255s | ❌ | explain output |
-| 9 | graphify | path | .160s | ✅ | path query |
-| 10 | cm | plan | .075s | ✅ | taskKind found |
-| 11 | cm | graph_build | .404s | ✅ | 4 nodes |
-| 12 | graphify | path_structural | .157s | ✅ | path query |
-| 13 | graphify | community_detection | .079s | ✅ | communities: 4 |
-| 14 | cm | fts5_search | .066s | ✅ | FTS5 results |
-| 15 | graphify | query_multi | .156s | ✅ | multi-concept query |
-| 16 | cm | consolidate | .374s | ✅ | consolidate OK |
-| 17 | cm | project | .076s | ✅ | MEMORY.md/USER.md |
-| 18 | graphify | wiki | .078s | ❌ | wiki not generated |
-| 19 | cm | disk_usage | N/As | ✅ | storage: 156KB |
-| 20 | graphify | disk_usage | N/As | ✅ | storage: 52KB |
+| System | Write burst (40) | Avg write | Recall p50 | Recall p95 | Accuracy top-3 |
+|---|---:|---:|---:|---:|---:|
+| A1 baseline | 3.738 s | 93.5 ms/op | 0.240 s | 0.367 s | 66.7% (10/15) |
+| A2 current | 5.566 s | 139.2 ms/op | 0.188 s | 0.325 s | 66.7% (10/15) |
+| Delta | +48.9% | +48.9% | -21.7% | -11.4% | 0.0 pp |
 
-## Storage
+## Native proxy (domain-asymmetric)
 
-| Sistema | Dimensione |
-|---------|-----------|
-| cm | 156KB |
-| graphify | 52KB |
+An ex-novo C open-addressing hash proxy, compiled in `/tmp/detwin-proxy` (detwin 0.9.0 is not standalone-compilable and its CrystFEL patch source is GPL-3.0 READ-ONLY), measured 100,000 inserts at 3,427,945 ops/s and 10,000 lookups at 6,531,679 ops/s. This is a raw ingest/lookup class reference only: detwin handles crystallographic numeric streams, while cm performs natural-language persistence, SQLite transactions, and process startup. Values are therefore not apples-to-apples.
+
+## Evaluation and iteration
+
+A2 improves recall latency materially while preserving retrieval accuracy. Write throughput regresses ~49%, expected from transactional durability and per-command CLI startup; no safe optimization was identified without weakening A2 guarantees. The benchmark script is reproducible (`tests/run-comparative-benchmark.sh`) and writes CSV/proxy output under `tests/benchmark-output/`.
