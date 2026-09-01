@@ -251,13 +251,16 @@ description: Persistent project memory via \`cm\` CLI, with optional global memo
 
 # cm - Code-Mem Tool
 
-## Init
+Local, persistent memory for a repository. Start substantial work by recalling
+the relevant context; save only durable, evidence-backed outcomes.
+
+## Initialize
 
 \`\`\`bash
 cm init            # default init with auto-scan
-cm init claude     # init + generate CLAUDE.md
-cm init pi         # init + generate AGENTS.md
-cm init codex      # init + generate GEMINI.md
+cm init pi         # init + project-local Pi skill and non-blocking hook
+cm init claude     # init + Claude instructions/hooks
+cm init codex      # init + Codex instructions/hooks
 cm init copilot    # init + generate .github/copilot-instructions.md
 cm init cursor     # init + generate .cursorrules
 \`\`\`
@@ -267,7 +270,7 @@ cm init cursor     # init + generate .cursorrules
 - \`cm version\`
 - \`cm save --kind decision "Use Vitest for unit tests"\`
 - \`cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"\`
-- \`cm recall "fix flaky tests" --level 2 --mode hybrid\`
+- \`cm recall "fix flaky tests" --level 2 --mode hybrid\` — retrieve prior evidence
 - \`cm recall-auto\` — auto-recall based on git context (used by SessionStart hook)
 - \`cm watch [--interval 30] [--daemon]\` — continuous embedding + consolidation daemon
 - \`cm plan "deploy preview build"\`
@@ -285,17 +288,17 @@ cm init cursor     # init + generate .cursorrules
 - \`cm ls\`
 - \`cm ls-user\`
 
-## Guidelines
+## Agent protocol
 
-1. Use \`cm recall\` before grep when you need project memory.
-2. Save durable learnings with \`cm save\`.
-3. When a learning should be available in every project, save it with \`cm save --global\`.
-4. Run \`cm project\` or \`cm consolidate\` when projections feel stale.
-5. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
-6. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
-7. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant project and global memories at session start.
-8. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (Ollama) or trigram fallback (zero deps).
-9. Run \`cm setup\` from a project directory, not from the user's home folder, unless you explicitly want a global Claude hook.
+1. At the start of a non-trivial task run \`cm recall "<goal>" --level 2 --mode hybrid\`; use \`cm plan\` to see why context was selected and \`cm sq\` only for exact prior conversation text.
+2. Save a decision, procedure, issue, or artifact only after it is durable and evidence-backed. Include paths, commands, tests, ticket IDs, and consequences where available.
+3. Never store secrets, access tokens, personal data, unverified hypotheses, or disposable status chatter.
+4. \`cm save --global\` is only for learning valid across projects; project-specific facts stay local.
+5. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`: inspect them, but do not hand-edit them as the source of truth.
+6. The Pi hook is best-effort: it recalls at session start and captures completed agent responses without ever blocking a session.
+7. \`cm recall --mode hybrid\` uses Ollama when available and a local fallback otherwise; missing embeddings do not stop work.
+8. Run \`cm consolidate\` after a completed debugging or implementation cycle; use \`cm project\` when projections look stale.
+9. Run \`cm setup\` only from a project directory. It installs global harness skills; \`cm init pi\` is the project-local Pi integration.
 `;
 }
 
@@ -317,12 +320,29 @@ async function setupHarness() {
     } catch {}
   }
   console.log(`Installed skill in ${n} harness(es)`);
-  await installHooks(cwd);
+  await installHooks(cwd, "claude");
 }
 
-async function installHooks(cwd) {
-  const dir = join(cwd, ".claude");
-  const settingsPath = join(dir, "settings.json");
+async function installHooks(cwd, harness = "claude") {
+  if (harness === "pi") {
+    const path = join(cwd, ".pi", "extensions", "code-mem.ts");
+    if (!existsSync(path)) {
+      mkdirSync(dirname(path), { recursive: true });
+      wr(path, CM_PI_EXTENSION);
+      console.log(`Hook added: ${path} -> session_start + turn_end`);
+    } else console.log("Pi hook already configured.");
+    return;
+  }
+  const configs = {
+    claude: { path: join(cwd, ".claude", "settings.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "Stop", command: "cm hook --event" },
+    codex: { path: join(cwd, ".codex", "hooks.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "Stop", command: "cm hook --event" },
+    copilot: { path: join(cwd, ".github", "hooks", "code-mem.json"), start: "sessionStart", prompt: "userPromptSubmitted", stop: "agentStop", command: "cm hook --event" },
+    cursor: { path: join(cwd, ".cursor", "hooks.json"), start: "sessionStart", prompt: "beforeSubmitPrompt", stop: "afterAgentResponse", command: "cm hook --event" },
+  };
+  const config = configs[harness];
+  if (!config) return;
+  const dir = dirname(config.path);
+  const settingsPath = config.path;
   try {
     if (isHomeDir(cwd)) {
       const warning =
@@ -345,29 +365,24 @@ async function installHooks(cwd) {
       settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     }
     if (!settings.hooks) settings.hooks = {};
-    if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-    const hookEntry = {
-      matcher: "",
-      hooks: [
-        {
-          type: "command",
-          command: "if [ -d memory ]; then cm recall-auto; fi",
-        },
-      ],
-    };
-    const exists = settings.hooks.SessionStart.some(
-      (h) => typeof h === "object" && h.matcher === "" && h.hooks?.some((hh) => hh.command?.includes("cm recall-auto"))
-    );
-    if (!exists) {
-      settings.hooks.SessionStart.push(hookEntry);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-      console.log(`Hook added: ${settingsPath} -> SessionStart: cm recall-auto`);
-    } else {
-      console.log("SessionStart hook already configured.");
+    if ((harness === "copilot" || harness === "cursor") && !settings.version) settings.version = 1;
+    if (!settings.hooks) settings.hooks = {};
+    const commandFor = (event) => `${config.command} ${event === config.start ? "session_start" : event === config.prompt ? "prompt" : "response"}`;
+    const entry = (event) => harness === "claude" || harness === "codex"
+      ? { matcher: "", hooks: [{ type: "command", command: `if [ -d memory ]; then ${commandFor(event)}; fi` }] }
+      : harness === "copilot"
+        ? { type: "command", bash: `if [ -d memory ]; then ${commandFor(event)}; fi` }
+        : { command: `if [ -d memory ]; then ${commandFor(event)}; fi` };
+    for (const event of [config.start, config.prompt, config.stop]) {
+      if (!settings.hooks[event]) settings.hooks[event] = [];
+      const marker = commandFor(event);
+      const exists = settings.hooks[event].some((h) => JSON.stringify(h).includes(marker));
+      if (!exists) settings.hooks[event].push(entry(event));
     }
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+    console.log(`Hooks configured: ${settingsPath} -> session recall + prompt/response capture`);
   } catch (e) {
     console.log(`Could not install hook: ${e.message}`);
   }
 }
-

@@ -8,12 +8,14 @@ description: >-
 
 # cm - Code-Mem Tool
 
-Use `cm` for project memory before reaching for ad-hoc grep across previous sessions.
+Use `cm` as the project's durable, local memory. Recall before rediscovering
+old decisions; save evidence-backed outcomes, not a stream of transient chat.
 
 ## Initialize
 
 ```bash
 cm init
+cm init pi  # project-local Pi skill + non-blocking session/capture hook
 ```
 
 ## Maintain
@@ -73,11 +75,12 @@ These command families work when called directly, but are listed only under `--f
 - `cm history [--kind k] [--entity e] [--limit n]` - timeline + digest of memory evolution
 - `cm digest` - alias of `cm history`
 
-## Guidelines
+## Agent protocol
 
-1. Save durable facts, decisions, procedures, issues, and preferences with `cm save`.
-2. If the memory should be automatically available in every project, use `cm save --global`.
-3. Use `cm recall` at the start of substantial coding tasks; it also searches global memory automatically.
-4. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`.
-5. Use `cm consolidate` after debugging or implementation sessions to keep the projection compact.
-6. Run `cm setup` from a project directory, not from the user's home folder, unless you explicitly want a global Claude hook.
+1. Before substantial work, run `cm recall "<goal or bug>" --level 2 --mode hybrid`; use `cm plan` to inspect retrieval and `cm sq` for an exact phrase from a prior conversation.
+2. Save only durable facts, decisions, procedures, issues, and artifacts. Include relevant paths, commands, tests, ticket IDs, and consequences.
+3. Never save secrets, tokens, personal data, speculation, or short-lived progress updates.
+4. Use `cm save --global` only for knowledge that genuinely applies across projects.
+5. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`, never as hand-edited source files.
+6. `cm init pi` installs a project-local Pi skill and a best-effort hook: it recalls context at session start and captures completed agent replies without blocking the session.
+7. Run `cm consolidate` after debugging or implementation sessions; missing Ollama falls back locally and must not stop work.

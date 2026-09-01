@@ -68,22 +68,25 @@ async function main() {
     nd.close();
     // Install optional AST parser deps (non-blocking, best-effort)
     try { installAcornDeps(); } catch {}
-    await installHooks(c);
+    await installHooks(c, harnessArg && harnessArg[0] !== "-" ? harnessArg.toLowerCase() : "claude");
     let msg = `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`;
     if (harnessArg && harnessArg[0] !== "-") {
       const harness = harnessArg.toLowerCase();
       const hc = HARNESS_CONFIGS[harness];
       if (hc) {
-        const configPath = join(c, hc.file);
+        const configPath = harness === "pi"
+          ? join(c, ".pi", "skills", "cm", "SKILL.md")
+          : join(c, hc.file);
         const existing = existsSync(configPath);
         if (existing) {
-          msg += `\nSkipped ${hc.file} (already exists)`;
+          msg += `\nSkipped ${harness === "pi" ? ".pi/skills/cm/SKILL.md" : hc.file} (already exists)`;
         } else {
           mkdirSync(dirname(configPath), { recursive: true });
-          const comment = harnessComment(harness);
-          const content = `${comment}\n\n${CM_HARNESS_SNIPPET}\n`;
+          const content = harness === "pi"
+            ? setupSkillText()
+            : `${harnessComment(harness)}\n\n${CM_HARNESS_SNIPPET}\n`;
           wr(configPath, content);
-          msg += `\n${hc.file} written — ${harness} will load cm instructions on start`;
+          msg += `\n${harness === "pi" ? ".pi/skills/cm/SKILL.md" : hc.file} written — ${harness} will load cm instructions on start`;
         }
       } else {
         const valid = Object.keys(HARNESS_CONFIGS).join(", ");
@@ -142,6 +145,34 @@ async function main() {
       refreshProjections(d, c);
       d.close();
     });
+    return;
+  }
+
+  if (cmd === "hook") {
+    const { flags } = parseArgs(a.slice(1));
+    const event = String(flags.event || "").toLowerCase();
+    let input = "";
+    try { input = readFileSync(0, "utf8"); } catch {}
+    let payload = {};
+    try { payload = JSON.parse(input || "{}"); } catch {}
+    if (event === "session_start" || event === "sessionstart") {
+      const q = buildAutoQuery(c);
+      captureAutoRecall(d, c);
+      console.log(`## Contextual Memory (auto-recall)`);
+      const recalled = await recallMemories(d, c, q, 1, 8, "hybrid");
+      if (!recalled.ranked.length) console.log("No relevant memories from current context.");
+      for (const e of recalled.ranked) {
+        const row = e.row;
+        console.log(`- [${row.kind}] [${row._scope === "global" ? "global" : "project"}] ${row.title}`);
+        console.log(`  ${row.summary || summarize(row.body)}`);
+      }
+    } else {
+      const prompt = payload.prompt || payload.user_prompt || payload.userPrompt || payload.input?.prompt;
+      const response = payload.last_assistant_message || payload.assistant_message || payload.response || payload.message;
+      if (typeof prompt === "string") captureAuto(d, c, { role: "dev", content: prompt });
+      if (typeof response === "string") captureAuto(d, c, { role: "agent", content: response });
+    }
+    d.close();
     return;
   }
 

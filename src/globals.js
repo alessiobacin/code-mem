@@ -101,32 +101,70 @@ const SECTION_CONFIG = [
 
 const CM_HARNESS_SNIPPET = `# cm - Code-Mem Tool
 
-Persistent project memory for coding agents.
+Persistent, local project memory. It is evidence, not a replacement for the
+repository: retrieve it before rediscovering prior decisions, and store only
+durable, verifiable learning.
 
-## Init
+## Start every substantial task
 
 \`\`\`bash
-cm init
+cm recall "<goal or bug>" --level 2 --mode hybrid
+cm plan "<goal>"                         # optional: inspect the retrieval plan
+cm sq "<exact phrase from a prior session>" # search captured conversation
 \`\`\`
 
-## Core commands
+## Record outcomes deliberately
 
-- \`cm save --kind decision "Use Vitest for unit tests"\` — save a typed memory
-- \`cm save --kind procedure --global "Reusable deploy steps"\` — cross-project memory
-- \`cm recall "fix flaky tests" --level 2 --mode hybrid\` — retrieve relevant memories
-- \`cm recall-auto\` — auto-recall (used by SessionStart hook)
-- \`cm plan "deploy preview build"\` — inspect retrieval plan
-- \`cm recent\` — list recent memories
-- \`cm consolidate\` — promote and normalize memories
+- \`cm save --kind decision --title "…" "why and consequence"\`
+- \`cm save --kind procedure --title "…" "repeatable steps"\`
+- \`cm save --kind issue --title "…" "symptom, cause, fix or next check"\`
+- \`cm save --global …\` only for knowledge valid across projects.
+- \`cm save --auto --role agent "…"\` is capture data, not a substitute for a
+  concise decision/issue memory.
 
-## Guidelines
+## Keep it useful
 
-1. Use \`cm recall\` before grep when you need project memory.
-2. Save durable learnings with \`cm save\`.
-3. Use \`cm save --global\` for cross-project knowledge.
-4. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
-5. Run \`cm consolidate\` after debugging/implementation sessions.
-6. \`cm recall --mode hybrid\` combines keyword + semantic embedding.`;
+1. Do not save secrets, tokens, personal data, guesses, or transient progress.
+2. Cite files, commands, tests, or ticket IDs in durable memories when known.
+3. Use \`cm recent\`, \`cm project\`, and \`cm consolidate\` after a completed
+   debugging or implementation cycle.
+4. \`MEMORY.md\` and \`USER.md\` are generated projections; never hand-edit
+   them as the source of truth.
+5. The Pi hook recalls context at session start and captures completed agent
+   responses. It never blocks an agent if Code Mem is unavailable.
+6. \`cm recall --mode hybrid\` uses Ollama when available and a local fallback
+   otherwise; a missing embedding service must not stop the project.`;
+
+// Pi's public extension API does not expose a process runner.  Use Node's
+// standard child-process API rather than the old, non-existent `pi.exec`, and
+// make every capture best-effort so a memory failure cannot break an agent.
+const CM_PI_EXTENSION = `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { execFile } from "node:child_process";
+
+function runCm(args: string[], cwd: string): Promise<void> {
+  return new Promise((resolve) => {
+    execFile("cm", args, { cwd, timeout: 10_000, maxBuffer: 256 * 1024 }, () => resolve());
+  });
+}
+
+function messageText(message: any): string {
+  if (typeof message?.content === "string") return message.content;
+  if (!Array.isArray(message?.content)) return "";
+  return message.content
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text)
+    .join("\\n");
+}
+
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    await runCm(["hook", "--event", "session_start"], ctx.cwd);
+  });
+  pi.on("turn_end", async (event: any, ctx) => {
+    const text = messageText(event?.message);
+    if (text.trim()) await runCm(["save", "--auto", "--role", "agent", text], ctx.cwd);
+  });
+}`;
 
 function harnessComment(harness) {
   const comments = {

@@ -126,6 +126,25 @@ describe("cm CLI — non-regression anchor (monolith baseline)", () => {
     }
   });
 
+  test("`cm init pi` installs a project-local Pi skill in .pi/", () => {
+    const p = makeProject("pi-project");
+    const r = p.run(["init", "pi"]);
+    assert.equal(r.code, 0, `init pi failed: ${r.output}`);
+    const skill = join(p.dir, ".pi", "skills", "cm", "SKILL.md");
+    const extension = join(p.dir, ".pi", "extensions", "code-mem.ts");
+    assert.ok(existsSync(skill), "missing .pi/skills/cm/SKILL.md");
+    assert.ok(existsSync(extension), "missing .pi/extensions/code-mem.ts");
+    assert.match(readFileSync(skill, "utf8"), /name: cm/);
+    assert.match(readFileSync(extension, "utf8"), /turn_end/);
+    assert.match(readFileSync(extension, "utf8"), /@mariozechner\/pi-coding-agent/);
+    assert.match(readFileSync(extension, "utf8"), /node:child_process/);
+    assert.match(r.output, /\.pi\/skills\/cm\/SKILL\.md written/);
+
+    const again = p.run(["init", "pi"]);
+    assert.equal(again.code, 0, `re-init pi failed: ${again.output}`);
+    assert.match(again.output, /Skipped \.pi\/skills\/cm\/SKILL\.md \(already exists\)/);
+  });
+
   test("`cm save` persists, fuzzy-dedupes, and `--force` re-saves identically", () => {
     const p = makeProject();
     initProject(p);

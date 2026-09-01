@@ -142,6 +142,7 @@ Usage:
 
 ```bash
 cm init
+cm init pi       # initialize Pi skill + lifecycle hook in .pi/
 ```
 
 ### `cm setup`
@@ -157,7 +158,8 @@ cm setup
 Notes:
 
 - the skill is installed in supported user-level harness directories
-- the `SessionStart` hook is installed only for the current project in `.claude/settings.json`
+- `cm init <harness>` installs the harness-native session hook and prompt/response capture hook for Claude, Pi, Codex, Copilot CLI, or Cursor
+- hooks are installed only for the selected current project; existing hook configuration is preserved
 - if you run `cm setup` from your home directory, `cm` warns and asks before installing a global hook there; this is not recommended
 
 ### `cm update`

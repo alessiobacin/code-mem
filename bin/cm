@@ -106,32 +106,70 @@ const SECTION_CONFIG = [
 
 const CM_HARNESS_SNIPPET = `# cm - Code-Mem Tool
 
-Persistent project memory for coding agents.
+Persistent, local project memory. It is evidence, not a replacement for the
+repository: retrieve it before rediscovering prior decisions, and store only
+durable, verifiable learning.
 
-## Init
+## Start every substantial task
 
 \`\`\`bash
-cm init
+cm recall "<goal or bug>" --level 2 --mode hybrid
+cm plan "<goal>"                         # optional: inspect the retrieval plan
+cm sq "<exact phrase from a prior session>" # search captured conversation
 \`\`\`
 
-## Core commands
+## Record outcomes deliberately
 
-- \`cm save --kind decision "Use Vitest for unit tests"\` — save a typed memory
-- \`cm save --kind procedure --global "Reusable deploy steps"\` — cross-project memory
-- \`cm recall "fix flaky tests" --level 2 --mode hybrid\` — retrieve relevant memories
-- \`cm recall-auto\` — auto-recall (used by SessionStart hook)
-- \`cm plan "deploy preview build"\` — inspect retrieval plan
-- \`cm recent\` — list recent memories
-- \`cm consolidate\` — promote and normalize memories
+- \`cm save --kind decision --title "…" "why and consequence"\`
+- \`cm save --kind procedure --title "…" "repeatable steps"\`
+- \`cm save --kind issue --title "…" "symptom, cause, fix or next check"\`
+- \`cm save --global …\` only for knowledge valid across projects.
+- \`cm save --auto --role agent "…"\` is capture data, not a substitute for a
+  concise decision/issue memory.
 
-## Guidelines
+## Keep it useful
 
-1. Use \`cm recall\` before grep when you need project memory.
-2. Save durable learnings with \`cm save\`.
-3. Use \`cm save --global\` for cross-project knowledge.
-4. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
-5. Run \`cm consolidate\` after debugging/implementation sessions.
-6. \`cm recall --mode hybrid\` combines keyword + semantic embedding.`;
+1. Do not save secrets, tokens, personal data, guesses, or transient progress.
+2. Cite files, commands, tests, or ticket IDs in durable memories when known.
+3. Use \`cm recent\`, \`cm project\`, and \`cm consolidate\` after a completed
+   debugging or implementation cycle.
+4. \`MEMORY.md\` and \`USER.md\` are generated projections; never hand-edit
+   them as the source of truth.
+5. The Pi hook recalls context at session start and captures completed agent
+   responses. It never blocks an agent if Code Mem is unavailable.
+6. \`cm recall --mode hybrid\` uses Ollama when available and a local fallback
+   otherwise; a missing embedding service must not stop the project.`;
+
+// Pi's public extension API does not expose a process runner.  Use Node's
+// standard child-process API rather than the old, non-existent `pi.exec`, and
+// make every capture best-effort so a memory failure cannot break an agent.
+const CM_PI_EXTENSION = `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { execFile } from "node:child_process";
+
+function runCm(args: string[], cwd: string): Promise<void> {
+  return new Promise((resolve) => {
+    execFile("cm", args, { cwd, timeout: 10_000, maxBuffer: 256 * 1024 }, () => resolve());
+  });
+}
+
+function messageText(message: any): string {
+  if (typeof message?.content === "string") return message.content;
+  if (!Array.isArray(message?.content)) return "";
+  return message.content
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text)
+    .join("\\n");
+}
+
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    await runCm(["hook", "--event", "session_start"], ctx.cwd);
+  });
+  pi.on("turn_end", async (event: any, ctx) => {
+    const text = messageText(event?.message);
+    if (text.trim()) await runCm(["save", "--auto", "--role", "agent", text], ctx.cwd);
+  });
+}`;
 
 function harnessComment(harness) {
   const comments = {
@@ -2777,13 +2815,16 @@ description: Persistent project memory via \`cm\` CLI, with optional global memo
 
 # cm - Code-Mem Tool
 
-## Init
+Local, persistent memory for a repository. Start substantial work by recalling
+the relevant context; save only durable, evidence-backed outcomes.
+
+## Initialize
 
 \`\`\`bash
 cm init            # default init with auto-scan
-cm init claude     # init + generate CLAUDE.md
-cm init pi         # init + generate AGENTS.md
-cm init codex      # init + generate GEMINI.md
+cm init pi         # init + project-local Pi skill and non-blocking hook
+cm init claude     # init + Claude instructions/hooks
+cm init codex      # init + Codex instructions/hooks
 cm init copilot    # init + generate .github/copilot-instructions.md
 cm init cursor     # init + generate .cursorrules
 \`\`\`
@@ -2793,7 +2834,7 @@ cm init cursor     # init + generate .cursorrules
 - \`cm version\`
 - \`cm save --kind decision "Use Vitest for unit tests"\`
 - \`cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"\`
-- \`cm recall "fix flaky tests" --level 2 --mode hybrid\`
+- \`cm recall "fix flaky tests" --level 2 --mode hybrid\` — retrieve prior evidence
 - \`cm recall-auto\` — auto-recall based on git context (used by SessionStart hook)
 - \`cm watch [--interval 30] [--daemon]\` — continuous embedding + consolidation daemon
 - \`cm plan "deploy preview build"\`
@@ -2811,17 +2852,17 @@ cm init cursor     # init + generate .cursorrules
 - \`cm ls\`
 - \`cm ls-user\`
 
-## Guidelines
+## Agent protocol
 
-1. Use \`cm recall\` before grep when you need project memory.
-2. Save durable learnings with \`cm save\`.
-3. When a learning should be available in every project, save it with \`cm save --global\`.
-4. Run \`cm project\` or \`cm consolidate\` when projections feel stale.
-5. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`.
-6. Start \`cm watch --daemon\` for automatic memory embedding and consolidation.
-7. The \`SessionStart\` hook runs \`cm recall-auto\` to load relevant project and global memories at session start.
-8. \`cm recall --mode hybrid\` combines keyword matching with semantic embedding (Ollama) or trigram fallback (zero deps).
-9. Run \`cm setup\` from a project directory, not from the user's home folder, unless you explicitly want a global Claude hook.
+1. At the start of a non-trivial task run \`cm recall "<goal>" --level 2 --mode hybrid\`; use \`cm plan\` to see why context was selected and \`cm sq\` only for exact prior conversation text.
+2. Save a decision, procedure, issue, or artifact only after it is durable and evidence-backed. Include paths, commands, tests, ticket IDs, and consequences where available.
+3. Never store secrets, access tokens, personal data, unverified hypotheses, or disposable status chatter.
+4. \`cm save --global\` is only for learning valid across projects; project-specific facts stay local.
+5. \`MEMORY.md\` and \`USER.md\` are generated projections from \`state.db\`: inspect them, but do not hand-edit them as the source of truth.
+6. The Pi hook is best-effort: it recalls at session start and captures completed agent responses without ever blocking a session.
+7. \`cm recall --mode hybrid\` uses Ollama when available and a local fallback otherwise; missing embeddings do not stop work.
+8. Run \`cm consolidate\` after a completed debugging or implementation cycle; use \`cm project\` when projections look stale.
+9. Run \`cm setup\` only from a project directory. It installs global harness skills; \`cm init pi\` is the project-local Pi integration.
 `;
 }
 
@@ -2843,12 +2884,29 @@ async function setupHarness() {
     } catch {}
   }
   console.log(`Installed skill in ${n} harness(es)`);
-  await installHooks(cwd);
+  await installHooks(cwd, "claude");
 }
 
-async function installHooks(cwd) {
-  const dir = join(cwd, ".claude");
-  const settingsPath = join(dir, "settings.json");
+async function installHooks(cwd, harness = "claude") {
+  if (harness === "pi") {
+    const path = join(cwd, ".pi", "extensions", "code-mem.ts");
+    if (!existsSync(path)) {
+      mkdirSync(dirname(path), { recursive: true });
+      wr(path, CM_PI_EXTENSION);
+      console.log(`Hook added: ${path} -> session_start + turn_end`);
+    } else console.log("Pi hook already configured.");
+    return;
+  }
+  const configs = {
+    claude: { path: join(cwd, ".claude", "settings.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "Stop", command: "cm hook --event" },
+    codex: { path: join(cwd, ".codex", "hooks.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "Stop", command: "cm hook --event" },
+    copilot: { path: join(cwd, ".github", "hooks", "code-mem.json"), start: "sessionStart", prompt: "userPromptSubmitted", stop: "agentStop", command: "cm hook --event" },
+    cursor: { path: join(cwd, ".cursor", "hooks.json"), start: "sessionStart", prompt: "beforeSubmitPrompt", stop: "afterAgentResponse", command: "cm hook --event" },
+  };
+  const config = configs[harness];
+  if (!config) return;
+  const dir = dirname(config.path);
+  const settingsPath = config.path;
   try {
     if (isHomeDir(cwd)) {
       const warning =
@@ -2871,27 +2929,23 @@ async function installHooks(cwd) {
       settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     }
     if (!settings.hooks) settings.hooks = {};
-    if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-    const hookEntry = {
-      matcher: "",
-      hooks: [
-        {
-          type: "command",
-          command: "if [ -d memory ]; then cm recall-auto; fi",
-        },
-      ],
-    };
-    const exists = settings.hooks.SessionStart.some(
-      (h) => typeof h === "object" && h.matcher === "" && h.hooks?.some((hh) => hh.command?.includes("cm recall-auto"))
-    );
-    if (!exists) {
-      settings.hooks.SessionStart.push(hookEntry);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-      console.log(`Hook added: ${settingsPath} -> SessionStart: cm recall-auto`);
-    } else {
-      console.log("SessionStart hook already configured.");
+    if ((harness === "copilot" || harness === "cursor") && !settings.version) settings.version = 1;
+    if (!settings.hooks) settings.hooks = {};
+    const commandFor = (event) => `${config.command} ${event === config.start ? "session_start" : event === config.prompt ? "prompt" : "response"}`;
+    const entry = (event) => harness === "claude" || harness === "codex"
+      ? { matcher: "", hooks: [{ type: "command", command: `if [ -d memory ]; then ${commandFor(event)}; fi` }] }
+      : harness === "copilot"
+        ? { type: "command", bash: `if [ -d memory ]; then ${commandFor(event)}; fi` }
+        : { command: `if [ -d memory ]; then ${commandFor(event)}; fi` };
+    for (const event of [config.start, config.prompt, config.stop]) {
+      if (!settings.hooks[event]) settings.hooks[event] = [];
+      const marker = commandFor(event);
+      const exists = settings.hooks[event].some((h) => JSON.stringify(h).includes(marker));
+      if (!exists) settings.hooks[event].push(entry(event));
     }
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+    console.log(`Hooks configured: ${settingsPath} -> session recall + prompt/response capture`);
   } catch (e) {
     console.log(`Could not install hook: ${e.message}`);
   }
@@ -3637,22 +3691,25 @@ async function main() {
     nd.close();
     // Install optional AST parser deps (non-blocking, best-effort)
     try { installAcornDeps(); } catch {}
-    await installHooks(c);
+    await installHooks(c, harnessArg && harnessArg[0] !== "-" ? harnessArg.toLowerCase() : "claude");
     let msg = `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`;
     if (harnessArg && harnessArg[0] !== "-") {
       const harness = harnessArg.toLowerCase();
       const hc = HARNESS_CONFIGS[harness];
       if (hc) {
-        const configPath = join(c, hc.file);
+        const configPath = harness === "pi"
+          ? join(c, ".pi", "skills", "cm", "SKILL.md")
+          : join(c, hc.file);
         const existing = existsSync(configPath);
         if (existing) {
-          msg += `\nSkipped ${hc.file} (already exists)`;
+          msg += `\nSkipped ${harness === "pi" ? ".pi/skills/cm/SKILL.md" : hc.file} (already exists)`;
         } else {
           mkdirSync(dirname(configPath), { recursive: true });
-          const comment = harnessComment(harness);
-          const content = `${comment}\n\n${CM_HARNESS_SNIPPET}\n`;
+          const content = harness === "pi"
+            ? setupSkillText()
+            : `${harnessComment(harness)}\n\n${CM_HARNESS_SNIPPET}\n`;
           wr(configPath, content);
-          msg += `\n${hc.file} written — ${harness} will load cm instructions on start`;
+          msg += `\n${harness === "pi" ? ".pi/skills/cm/SKILL.md" : hc.file} written — ${harness} will load cm instructions on start`;
         }
       } else {
         const valid = Object.keys(HARNESS_CONFIGS).join(", ");
@@ -3711,6 +3768,34 @@ async function main() {
       refreshProjections(d, c);
       d.close();
     });
+    return;
+  }
+
+  if (cmd === "hook") {
+    const { flags } = parseArgs(a.slice(1));
+    const event = String(flags.event || "").toLowerCase();
+    let input = "";
+    try { input = readFileSync(0, "utf8"); } catch {}
+    let payload = {};
+    try { payload = JSON.parse(input || "{}"); } catch {}
+    if (event === "session_start" || event === "sessionstart") {
+      const q = buildAutoQuery(c);
+      captureAutoRecall(d, c);
+      console.log(`## Contextual Memory (auto-recall)`);
+      const recalled = await recallMemories(d, c, q, 1, 8, "hybrid");
+      if (!recalled.ranked.length) console.log("No relevant memories from current context.");
+      for (const e of recalled.ranked) {
+        const row = e.row;
+        console.log(`- [${row.kind}] [${row._scope === "global" ? "global" : "project"}] ${row.title}`);
+        console.log(`  ${row.summary || summarize(row.body)}`);
+      }
+    } else {
+      const prompt = payload.prompt || payload.user_prompt || payload.userPrompt || payload.input?.prompt;
+      const response = payload.last_assistant_message || payload.assistant_message || payload.response || payload.message;
+      if (typeof prompt === "string") captureAuto(d, c, { role: "dev", content: prompt });
+      if (typeof response === "string") captureAuto(d, c, { role: "agent", content: response });
+    }
+    d.close();
     return;
   }
 
