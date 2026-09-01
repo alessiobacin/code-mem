@@ -495,8 +495,24 @@ function od(p) {
   `);
   ensureGraphTables(d);
   ensureMessagesSearchTables(d);
+  ensureMigrationColumns(d);
   ensureRecallIndexes(d);
   return d;
+}
+
+function ensureMigrationColumns(d) {
+  // Lifecycle migration (Task B, Phase 3) — additive and idempotent so it never
+  // breaks pre-existing installations. Adds lightweight provenance columns the
+  // correction lifecycle writes; failures degrade gracefully (column simply
+  // isn't present, status tracking still works).
+  try {
+    const cols = new Set(
+      allStmt(d, "PRAGMA table_info(memory_items)").map((c) => c.name)
+    );
+    if (!cols.has("corrected_by")) {
+      runStmt(d, "ALTER TABLE memory_items ADD COLUMN corrected_by TEXT");
+    }
+  } catch { /* non-fatal: ignore migration errors on legacy DBs */ }
 }
 
 function ensureMessagesSearchTables(d) {
@@ -607,6 +623,7 @@ function ensureRecallIndexes(d) {
 function runStmt(d, sql, params = []) {
   return d.prepare(sql).run(...params);
 }
+
 
 function allStmt(d, sql, params = []) {
   return d.prepare(sql).all(...params);
@@ -1852,19 +1869,55 @@ function saveMemory(d, cwd, input) {
   return row;
 }
 
+function correctionPatternStatus(body) {
+  const m = /^(contested|corrected|obsolete)\s*:\s*(.+)$/i.exec(String(body || "").trim());
+  return m ? { status: m[1].toLowerCase(), ref: String(m[2] || "").trim() } : null;
+}
+
+function applyCorrectionStatus(d, body) {
+  // A save that starts with "contested:" / "corrected:" / "obsolete:" names a
+  // prior memory (by title or body, appearing in the remainder). That referenced
+  // memory transitions to the named status so it stops serving as an active
+  // recall candidate. Returns how many memories were marked.
+  const c = correctionPatternStatus(body);
+  if (!c || !c.ref) return 0;
+  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at DESC");
+  let marked = 0;
+  for (const row of rows) {
+    const bodyLow = String(row.body || "").trim().toLowerCase();
+    const titleLow = String(row.title || "").trim().toLowerCase();
+    const hits = (bodyLow && c.ref.toLowerCase().includes(bodyLow)) || (titleLow && c.ref.toLowerCase().includes(titleLow));
+    if (!hits) continue;
+    runStmt(d, "UPDATE memory_items SET status=?, corrected_by=?, updated_at=? WHERE id=?", [c.status, inferAgent(), nowIso(), row.id]);
+    updateFtsRow(d, row);
+    marked += 1;
+  }
+  return marked;
+}
+
 function saveMemorySemanticDedup(d, cwd, input) {
   // Full semantic dedup via embedding + cosine similarity
   // Used by save commands; triggers embedding if not already stored
   const body = String(input.body || "").trim();
   if (!body) throw new Error("text required");
+  // Correction lifecycle: a "contested:/corrected:/obsolete:" save names and
+  // transitions a prior memory. The correction persists as a status change on
+  // the referenced memory rather than a near-duplicate new entry.
+  if (correctionPatternStatus(body)) {
+    applyCorrectionStatus(d, body);
+    return { id: `correction:${hashText(body)}`, created: false, correction: true };
+  }
   const existing = findNearDuplicate(d, body, input.kind);
   if (existing && !input.force) return { id: existing.id, created: false, duplicate: true, existing };
   const result = saveMemory(d, cwd, input);
-  // Trigger vectorization for future semantic matching
+  // Always persist a synchronous trigram vector so the memory is immediately
+  // recallable regardless of Ollama availability. When Ollama is reachable we
+  // additionally trigger an asynchronous model upgrade, but never await it (the
+  // db may be closed by the caller first), so the trigram vector is the
+  // deterministic guarantee.
   const text = `${result.title || ""} ${body} ${input.summary || ""}`.trim();
-  const useOllama = checkOllama();
-  if (useOllama) { embedText(d, result.id, null, text).catch(() => {}); }
-  else { saveTrigramVector(d, result.id, text); }
+  saveTrigramVector(d, result.id, text);
+  if (checkOllama()) { embedText(d, result.id, null, text).catch(() => {}); }
   return result;
 }
 
@@ -2096,6 +2149,100 @@ function backupGlobalMemories(d, cwd) {
     ) + "\n"
   );
   return out;
+}
+
+function exportMemoryBundle(d, cwd, outName = "export.json") {
+  const rows = listMemoryRows(d, "", [], "ORDER BY mi.updated_at DESC");
+  const out = join(cwd, outName);
+  wr(
+    out,
+    JSON.stringify(
+      {
+        version: VERSION,
+        scope: "project",
+        exportedAt: nowIso(),
+        items: rows.map(serializeMemoryRow),
+      },
+      null,
+      2
+    ) + "\n"
+  );
+  return out;
+}
+
+function mergeMemoryItem(d, cwd, item) {
+  if (!item || !item.id) return { created: false, merged: false, skipped: true };
+  const existing = getStmt(d, "SELECT id, updated_at FROM memory_items WHERE id = ?", [item.id]);
+  if (!existing) {
+    const res = saveMemoryToStore(d, cwd, item);
+    if (res && res.id) {
+      const text = `${item.title || ""} ${item.body || ""} ${item.summary || ""}`.trim();
+      try { saveTrigramVector(d, res.id, text); } catch {}
+      return { created: Boolean(res.created), id: res.id };
+    }
+    return { skipped: true };
+  }
+  // Deterministic merge: last-write-wins by ISO timestamp, keeping the newer body.
+  const incoming = String(item.updatedAt || "");
+  const current = String(existing.updated_at || "");
+  if (incoming > current) {
+    runStmt(
+      d,
+      "UPDATE memory_items SET kind=?,layer=?,title=?,body=?,summary=?,confidence=?,salience=?,source=?,status=?,valid_from=?,valid_to=?,supersedes_id=?,updated_at=? WHERE id=?",
+      [
+        item.kind, item.layer, item.title, item.body, item.summary || null,
+        item.confidence, item.salience, item.source || "manual", item.status || "active",
+        item.validFrom || null, item.validTo || null, item.supersedesId || null,
+        incoming || nowIso(), item.id,
+      ]
+    );
+    runStmt(
+      d,
+      "INSERT OR REPLACE INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
+      [item.id, item.cwd || "", item.gitBranch || "", item.taskKind || "", JSON.stringify(item.files || []), JSON.stringify(item.tags || [])]
+    );
+    const updated = loadMemoryRow(d, item.id);
+    updateFtsRow(d, updated);
+    try { saveTrigramVector(d, item.id, `${item.title || ""} ${item.body || ""} ${item.summary || ""}`.trim()); } catch {}
+    return { merged: true, id: item.id };
+  }
+  // Re-import of the same bundle is a no-op (idempotent diff).
+  return { skipped: true, id: item.id };
+}
+
+function importMemoryBundle(d, cwd, file) {
+  const payload = safeJsonParse(rd(file), null);
+  if (!payload || !Array.isArray(payload.items)) {
+    console.log("Invalid bundle file (expected { items: [...] }).");
+    process.exit(1);
+  }
+  let created = 0, merged = 0, skipped = 0;
+  for (const item of payload.items) {
+    const r = mergeMemoryItem(d, cwd, item);
+    if (r.created) created += 1;
+    else if (r.merged) merged += 1;
+    else skipped += 1;
+  }
+  refreshProjections(d, cwd);
+  return { created, merged, skipped, total: payload.items.length };
+}
+
+function cmdStats(d, cwd) {
+  const mem = getStmt(d, "SELECT COUNT(*) AS c FROM memory_items WHERE status='active'") || { c: 0 };
+  const memories = Number(mem.c) || 0;
+  const acc = getStmt(d, "SELECT COALESCE(SUM(access_count),0) AS s FROM memory_items WHERE status='active'") || { s: 0 };
+  const recalls = Number(acc.s) || 0;
+  const MIN_PER_RECALL = 3;
+  const timeSavedMin = recalls * MIN_PER_RECALL;
+  // Deterministic value metric from real data: memories retained + conserved
+  // actions (touch/recall access_count) + estimated time saved.
+  const value = Math.round(memories + recalls * 2 + timeSavedMin);
+  console.log(`cm stats`);
+  console.log(`memories: ${memories}`);
+  console.log(`recalls (actions conserved): ${recalls}`);
+  console.log(`time saved estimate: ${timeSavedMin} min`);
+  console.log(`value: ${value}`);
+  return { memories, recalls, timeSavedMin, value };
 }
 
 function resolveRestorePath(cwd, maybePath) {
@@ -2969,7 +3116,7 @@ function printRows(rows) {
 function replaceMemory(d, cwd, match, nextText, kindFilter) {
   const rows = listMemoryRows(
     d,
-    `WHERE mi.status='active' ${kindFilter ? "AND mi.kind = ?" : ""}`,
+    `WHERE mi.status <> 'archived' ${kindFilter ? "AND mi.kind = ?" : ""}`,
     kindFilter ? [kindFilter] : [],
     "ORDER BY mi.updated_at DESC"
   );
@@ -2988,10 +3135,11 @@ function replaceMemory(d, cwd, match, nextText, kindFilter) {
     process.exit(1);
   }
   const row = matches[0];
+  // A replace is a correction: the referenced memory is marked corrected.
   runStmt(
     d,
-    "UPDATE memory_items SET body=?, title=?, summary=?, updated_at=? WHERE id=?",
-    [nextText, projectTitle(nextText), summarize(nextText), nowIso(), row.id]
+    "UPDATE memory_items SET body=?, title=?, summary=?, status='corrected', corrected_by=?, updated_at=? WHERE id=?",
+    [nextText, projectTitle(nextText), summarize(nextText), inferAgent(), nowIso(), row.id]
   );
   const updated = loadMemoryRow(d, row.id);
   updateFtsRow(d, updated);
@@ -3820,7 +3968,7 @@ async function main() {
     const autoRole = flags.auto ? (flags.role || "dev") : null;
     if (flags.global) {
       const gd = od(globalDbPath());
-      const result = saveMemory(gd, c, payload);
+      const result = saveMemorySemanticDedup(gd, c, payload);
       if (result.duplicate) {
         console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
       } else {
@@ -3833,7 +3981,7 @@ async function main() {
       }
       gd.close();
     } else {
-      const result = saveMemory(d, c, payload);
+      const result = saveMemorySemanticDedup(d, c, payload);
       if (result.duplicate) {
         console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
       } else {
@@ -3873,6 +4021,23 @@ async function main() {
     const result = restoreGlobalMemories(gd, c, rest[0]);
     gd.close();
     console.log(`Restored ${result.imported}/${result.total} global memories from ${result.resolved}`);
+    return;
+  }
+
+  if (cmd === "export") {
+    // Deterministic state.db bundle export (Task B merge)
+    const { flags } = parseArgs(a.slice(1));
+    const outName = String(flags.o || flags.output || flags.out || "export.json");
+    const out = exportMemoryBundle(d, c, outName);
+    console.log(`Exported bundle to ${out}`);
+    d.close();
+    return;
+  }
+
+  if (cmd === "stats") {
+    const { flags } = parseArgs(a.slice(1));
+    cmdStats(d, c);
+    d.close();
     return;
   }
 
@@ -4433,7 +4598,19 @@ async function main() {
       d.close(); return;
     }
 
-    console.log("Usage: cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path>");
+    // Task B: deterministic bundle merge — `cm import <export.json>`. A plain
+    // positional file (not one of the typed graph/memory imports) is treated as
+    // a merge bundle from `cm export`.
+    const bundle = a.slice(1).find((x) => x && !x.startsWith("-"));
+    if (bundle) {
+      if (!existsSync(bundle)) { console.log(`Bundle file not found: ${bundle}`); d.close(); return; }
+      const result = importMemoryBundle(d, c, bundle);
+      console.log(`Imported ${result.created} new, ${result.merged} merged, ${result.skipped} unchanged (total ${result.total})`);
+      d.close();
+      return;
+    }
+
+    console.log("Usage: cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path> | cm import <bundle.json>");
     console.log("Options: --dry-run, --replace");
     d.close();
     return;

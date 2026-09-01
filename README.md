@@ -115,9 +115,10 @@ The CLI is modular by construction: `bin/cm` is a single-file bundle assembled f
 
 `state.db` is the source of truth.
 
-- `memory_items`: typed project memories
+- `memory_items`: typed project memories, with a lifecycle `status` (`active`/`archived` plus `contested`/`corrected`/`obsolete`) and a `corrected_by` provenance column (added additively by a guarded migration on pre-existing databases)
 - `memory_context`: branch, cwd, agent, task, files, tags
 - `memory_links`: relationships between memories
+- `memory_vectors`: per-memory embedding vectors (`model` = `trigram` or `nomic-embed-text`), stored as Int8-quantized blobs
 - `messages` + `messages_fts`: searchable conversation log (written by the capture layer)
 - `graph_nodes` / `graph_edges`: graph persisted in SQLite
 
@@ -218,7 +219,7 @@ Usage:
 
 ```bash
 cm save [--kind KIND] [--layer LAYER] [--title TITLE] [--summary TEXT] \
-  [--confidence 0.0-1.0] [--tag tag1,tag2] [--file path1,path2] [--global] <text>
+  [--confidence 0.0-1.0] [--tag tag1,tag2] [--file path1,path2] [--global] [--force] <text>
 cm save --auto [--role dev|agent] <text>
 ```
 
@@ -262,6 +263,8 @@ Notes:
 - `--global` saves the memory into the cross-project store at `~/.cm/state.db`.
 - Every `cm save --global ...` also writes a dated markdown snapshot to `~/.cm/memories/<timestamp>/global-memory.md`.
 - `cm recall` and `cm recall-auto` search both project memory and global memory automatically.
+- Every save runs through the **semantic dedup path**: the text is embedded as a trigram vector (stored in `memory_vectors`, Int8-quantized) and compared against the 50 most recent active memories of the same kind; similarity above 0.65 returns the existing memory instead of creating a near-duplicate. Use `--force` to save anyway. If Ollama with `nomic-embed-text` is reachable, an async model embedding upgrade is triggered on top — the trigram vector is the deterministic guarantee, so recall works identically without Ollama.
+- `cm save --auto [--role dev|agent]` additionally records the message into the searchable conversation log (see *Capture layer*).
 
 ### `cm add`
 
@@ -310,6 +313,20 @@ Example:
 ```bash
 cm replace "Vitest" "Vitest is the default runner; Playwright is only for e2e."
 ```
+
+A replace is a correction: the referenced memory is transitioned to `status='corrected'` with `corrected_by` set to the acting agent, so the pre-correction text stops serving as an active recall candidate.
+
+### Memory lifecycle (`contested:` / `corrected:` / `obsolete:`)
+
+Memories carry a lifecycle status (`active`, `archived`, plus the correction states `contested`, `corrected`, `obsolete`). Only `active` memories are recall candidates, dedup targets, or counted by `cm ls` / `cm stats`.
+
+A save whose body starts with `contested:`, `corrected:`, or `obsolete:` followed by the text (or title) of a prior memory transitions that referenced memory to the named status and stamps `corrected_by` with the acting agent. The correction itself is not stored as a new near-duplicate entry:
+
+```bash
+cm save "corrected: Vitest is the default runner — it is now Vitest 3, watch mode enabled by default"
+```
+
+The transition is idempotent and additive: on pre-existing databases the `corrected_by` column is added by a guarded migration (`ensureMigrationColumns`) that never breaks older `state.db` files.
 
 ### `cm rm`
 
@@ -421,7 +438,7 @@ Retrieve memories relevant to a task.
 Usage:
 
 ```bash
-cm recall <task> [--level 1|2|3] [--limit N]
+cm recall <task> [--level 1|2|3] [--limit N] [--mode keyword|hybrid|semantic]
 ```
 
 Levels:
@@ -429,6 +446,14 @@ Levels:
 - `1`: titles only
 - `2`: title + summary + light context
 - `3`: full body + tags + files
+
+Modes:
+
+- `hybrid` (default) — deterministic ranking enriched with semantic similarity
+- `semantic` — semantic similarity dominates the score (0.55 weight)
+- `keyword` — pure deterministic/lexical, no embedding computation
+
+`cm explain` accepts the same `--mode` values.
 
 Examples:
 
@@ -485,6 +510,39 @@ Usage:
 ```bash
 cm project
 ```
+
+### `cm export` / `cm import <bundle.json>` — deterministic merge
+
+Export the full `memory/state.db` memory set to a JSON bundle and merge it (or a teammate's bundle) into another project database:
+
+```bash
+cm export                       # writes ./export.json
+cm export --output team-x.json  # custom filename
+
+cm import team-x.json           # merge a bundle into the current project
+```
+
+Behavior:
+
+- the bundle (`{ version, scope: "project", exportedAt, items }`) is deterministic and includes every memory regardless of status, so lifecycle provenance survives a round-trip.
+- the merge is an idempotent diff keyed by memory id: **new ids are created**, **existing ids are updated only when the incoming `updated_at` ISO timestamp is newer** (last-write-wins), otherwise the item is skipped unchanged. Re-importing the same bundle is a no-op.
+- merged items are re-vectorized (trigram) and re-indexed in FTS, and projections are refreshed.
+- `cm import` also accepts typed imports: `--graphify <path>`, `--claude-mem`, `--json <path>` (graph nodes/edges), with `--dry-run` and `--replace` options. A plain positional file is treated as an export bundle.
+
+### `cm stats`
+
+Show a deterministic value metric computed from real data (no vanity counters):
+
+```bash
+cm stats
+```
+
+Output:
+
+- `memories` — count of active memories
+- `recalls (actions conserved)` — sum of `access_count` over active memories (every `cm recall` / `cm touch` hit counts)
+- `time saved estimate` — recalls × 3 min
+- `value` — memories + recalls × 2 + time-saved estimate
 
 ### `cm consolidate`
 
@@ -663,6 +721,8 @@ Ranking considers:
 - **trigram similarity** — fallback embedding che cattura varianti morfologiche e refusi senza modelli esterni
 - **Ollama embedding** (opzionale) — similarità semantica via `nomic-embed-text`
 
+`--mode` rebalances the mix: `semantic` weights the similarity score at 0.55, `hybrid` keeps the full deterministic blend (and can go fully semantic-driven when the keyword/concept scores are negligible), `keyword` skips embeddings entirely.
+
 No external model is required for retrieval. If Ollama is present, it is preferred; if absent, trigram similarity provides semantic-like matching at zero dependency cost.
 
 ## Recommended Workflow
@@ -722,12 +782,12 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 | Feature | **code-mem** | **claude-mem** | **graphify** | **Claude Code file memory** |
 |---|---|---|---|---|
 | **Storage** | SQLite (node:sqlite) — local only | Remote cloud service (MCP) | JSON graph (`graph.json`) + optional Neo4j | Markdown files (flat) |
-| **Search** | FTS5 full-text search over conversations | Semantic search via MCP API | BFS/DFS graph traversal + community detection | Manual grep only |
+| **Search** | FTS5 full-text search over conversations + trigram/Ollama vector similarity with `--mode keyword\|hybrid\|semantic` | Semantic search via MCP API | BFS/DFS graph traversal + community detection | Manual grep only |
 | **Retrieval** | Deterministic ranking (keyword + recency + task-kind) | ML-based semantic similarity | Graph traversal (query/path/explain) | None — always loaded in context |
 | **Context cost** | ~800 tokens (MEMORY.md) + ~500 (USER.md) = fixed | Unknown — MCP calls per session | 0 tokens on load — queried on demand | Proportional to file size |
 | **CLI** | Single binary (`cm`) — no dependencies | Requires npm + MCP server | Requires Python + pip packages | None |
 | **Agent support** | Agent-agnostic (works with any coding agent) | Claude Code only | Claude Code + MCP-compatible agents | Claude Code only |
-| **Persistence** | Per-project SQLite + optional local global SQLite with typed layers | Cross-project cloud persistence | Per-run or incremental — no persistent "memory" layer | Per-file markdown |
+| **Persistence** | Per-project SQLite + optional local global SQLite with typed layers, plus deterministic project-to-project merge (`cm export` / `cm import <bundle.json>`) | Cross-project cloud persistence | Per-run or incremental — no persistent "memory" layer | Per-file markdown |
 | **Graph** | Lightweight JSON graph (`graph.json`) with nodes/edges | None | Full-featured: community detection, AST + semantic extraction, hub analysis | None |
 | **Install** | `curl` one-liner | `npm install -g claude-mem` + MCP config | `pip install graphifyy` | Built into Claude Code |
 | **License** | MIT | Apache-2.0 | MIT | Proprietary (Anthropic) |

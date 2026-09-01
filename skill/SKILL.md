@@ -34,8 +34,10 @@ Public help is deliberately **lean**. Run `cm help --full` (or `cm --full`) to s
 - `cm save --kind decision "Use Vitest for unit tests"` - save a typed memory
 - `cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"` - save a cross-project memory
 - `cm save --auto --role dev "what was said"` - **capture layer**: write a conversation row into the `messages` table (searchable with `cm sq`)
-- `cm recall "fix flaky tests" --level 2` - retrieve relevant memory for a task
+- `cm recall "fix flaky tests" --level 2` - retrieve relevant memory for a task (add `--mode keyword|hybrid|semantic` to rebalance the ranking)
 - `cm plan "deploy preview build"` - inspect the retrieval plan
+- `cm stats` - active memories, conserved recalls, estimated time saved, value metric
+- `cm export` / `cm import <bundle.json>` - deterministic JSON bundle export + idempotent merge (last-write-wins by updated_at)
 - `cm sq "query"` - full-text search recorded messages
 - `cm recent` - list recent memories
 - `cm consolidate` - promote and normalize memories
@@ -43,6 +45,9 @@ Public help is deliberately **lean**. Run `cm help --full` (or `cm --full`) to s
 - `cm backup` - save project memories to `./cm/memories/<timestamp>/project-memory.md`
 - `cm backup --global` - export global memories to a backup file in the current directory
 - `cm restore --global [file]` - merge a global backup into `~/.cm/state.db`
+
+- `cm replace "match" "new text"` - correct a memory (marks it `corrected` with provenance)
+- `cm save "corrected: <prior memory text> <new statement>"` - transition a prior memory to `contested`/`corrected`/`obsolete` instead of saving a near-duplicate
 
 ## Legacy Compatibility
 
@@ -77,10 +82,11 @@ These command families work when called directly, but are listed only under `--f
 
 ## Agent protocol
 
-1. Before substantial work, run `cm recall "<goal or bug>" --level 2 --mode hybrid`; use `cm plan` to inspect retrieval and `cm sq` for an exact phrase from a prior conversation.
-2. Save only durable facts, decisions, procedures, issues, and artifacts. Include relevant paths, commands, tests, ticket IDs, and consequences.
-3. Never save secrets, tokens, personal data, speculation, or short-lived progress updates.
-4. Use `cm save --global` only for knowledge that genuinely applies across projects.
+1. Save durable facts, decisions, procedures, issues, and preferences with `cm save`. Saves are deduplicated by trigram similarity (>0.65 against recent same-kind memories); use `--force` to override.
+2. If the memory should be automatically available in every project, use `cm save --global`.
+3. Before substantial work, run `cm recall "<goal or bug>" --level 2 --mode hybrid`; use `cm plan` to inspect retrieval and `cm sq` for an exact phrase from a prior conversation. It also searches global memory automatically.
+4. Never save secrets, tokens, personal data, speculation, or short-lived progress updates.
 5. Treat `MEMORY.md` and `USER.md` as generated projections from `state.db`, never as hand-edited source files.
 6. `cm init pi` installs a project-local Pi skill and a best-effort hook: it recalls context at session start and captures completed agent replies without blocking the session.
 7. Run `cm consolidate` after debugging or implementation sessions; missing Ollama falls back locally and must not stop work.
+8. To move memory between projects (or merge a teammate's), run `cm export` in the source repo and `cm import <bundle.json>` in the target — the merge is idempotent and safe to re-run.

@@ -49,6 +49,6 @@ flowchart TD
 2. **Scoping multi-store** — raccoglie candidati dal progetto e, se servono piu' risultati (o in modalita' explore), anche dalla memoria globale `~/.cm/state.db`.
 3. **Espansione** — termini di grafo (etichette nodi) + BFS sui `memory_links` per trovare memorie collegate.
 4. **Embedding (opzionale)** — Ollama se `level>2` e disponibile, altrimenti trigram; mai richiesto per il funzionamento base.
-5. **Score a 8+ dimensioni** — `scoreMemory()` combina keyword, recency, access, context (branch/cwd), kind-priority, grafo, concept, source, distanza di link.
+5. **Score a 8+ dimensioni** — `scoreMemory()` combina keyword, recency, access, context (branch/cwd), kind-priority, grafo, concept, source, distanza di link. `--mode` ribilancia il mix: `semantic` pesa la similarita' semantica a 0.55, `hybrid` (default) mantiene il blend deterministico completo (con fallback semantic-driven quando keyword/concept sono trascurabili), `keyword` salta del tutto gli embedding.
 6. **Selezione** — filtro `score>0.05`, ordinamento desc, slice su `limit`; i risultati aggiornano `access_count`.
 7. **Rendering** — `--level` decide quanto mostrare (titoli → +summary → body completo con `Explain:`).
