@@ -102,7 +102,7 @@ describe("A1 — recall-auto temperature re-ranking", () => {
     const deployIdx = r.stdout.indexOf("Deploy uses the blue-green pipeline script");
     const wsIdx = r.stdout.indexOf("websocket reconnect");
     const pgIdx = r.stdout.indexOf("PostgreSQL 16 runs on Neon");
-    assert.ok(deployIdx !== -1, "on-topic decision missing from auto-recall output");
+    assert.ok(deployIdx !== -1, `on-topic decision missing from auto-recall output. cwd=${p.dir}\n--- stdout ---\n${r.stdout}\n--- stderr ---\n${r.stderr}`);
     for (const [label, idx] of [["websocket", wsIdx], ["postgres", pgIdx]]) {
       if (idx !== -1) assert.ok(deployIdx < idx, `on-topic decision should precede ${label} distractor`);
     }
