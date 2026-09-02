@@ -21,7 +21,10 @@ cm init pi  # project-local Pi skill + non-blocking session/capture hook
 ## Maintain
 
 ```bash
-cm update
+cm update                    # binary self-update from remote
+cm update --memory           # re-scan repo: refresh snapshot + graph
+cm update --memory --clean [--dry-run]  # archive near-duplicates + low-confidence noise
+cm update --memory --reset   # archive ALL project memories and re-scan fresh
 cm version
 ```
 

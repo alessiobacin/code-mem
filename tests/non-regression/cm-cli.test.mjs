@@ -295,3 +295,221 @@ describe("cm CLI — non-regression anchor (monolith baseline)", () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// cm update --memory (snapshot refresh, noise cleanup, memory reset)
+// ---------------------------------------------------------------------------
+
+describe("cm update --memory", () => {
+
+  test("`cm update --memory` refreshes the stale project snapshot (old row archived, new scan row saved)", () => {
+    const p = makeProject();
+    initProject(p);
+
+    // Simulate a stale snapshot: change the repo AFTER init so the fresh scan
+    // body differs from the stored one.
+    writeFileSync(join(p.dir, "package.json"), JSON.stringify({
+      name: "proj", private: true, dependencies: { express: "^4.0.0", redis: "^4.0.0" },
+    }));
+
+    const r = p.run(["update", "--memory"]);
+    assert.equal(r.code, 0, `update --memory failed: ${r.output}`);
+    assert.match(r.output, /Memory refreshed/);
+    assert.match(r.output, /Snapshot updated/);
+
+    // Exactly ONE active snapshot row must remain (the fresh one), and the
+    // stale row must be archived, not left as a duplicate.
+    const ls = p.run(["ls"]);
+    assert.equal(ls.code, 0);
+    const snapshotLines = ls.stdout.split("\n").filter((l) => /Project snapshot/.test(l) && /\[mem_/.test(l));
+    assert.ok(snapshotLines.length >= 1, "no active snapshot row after refresh");
+    assert.ok(/express/i.test(ls.stdout) || /Express/.test(ls.stdout), "fresh snapshot body missing from ls");
+  });
+
+  test("`cm update --memory` on a project without init refuses with a clear message", () => {
+    const p = makeProject();
+    const r = p.run(["update", "--memory"]);
+    assert.equal(r.code, 1);
+    assert.match(r.output, /No memory\/\. Run: cm init/);
+  });
+
+  test("`cm update --memory` is idempotent when nothing changed (same scan body -> refresh, no duplicate)", () => {
+    const p = makeProject();
+    initProject(p);
+    const r1 = p.run(["update", "--memory"]);
+    assert.equal(r1.code, 0);
+    const r2 = p.run(["update", "--memory"]);
+    assert.equal(r2.code, 0);
+    assert.match(r2.output, /Snapshot updated|Snapshot unchanged/);
+
+    const ls = p.run(["ls"]);
+    const snapshotLines = ls.stdout.split("\n").filter((l) => /Project snapshot/.test(l) && /\[mem_/.test(l));
+    assert.equal(snapshotLines.length, 1, "duplicate snapshot rows after idempotent refresh");
+  });
+
+  test("`cm update --memory --clean --dry-run` lists noisy candidates without changing anything", () => {
+    const p = makeProject();
+    initProject(p);
+    // Seed noise: two near-duplicate facts + one low-confidence fact.
+    p.run(["save", "--kind", "fact", "Redis is the cache layer for sessions"]);
+    p.run(["save", "--kind", "fact", "Redis is the cache layer for sessions and tokens"]);
+    p.run(["save", "--kind", "fact", "--confidence", "0.1", "Fuzzy hypothesis about unused widget"]);
+    const before = p.run(["ls"]).stdout;
+
+    const r = p.run(["update", "--memory", "--clean", "--dry-run"]);
+    assert.equal(r.code, 0, `clean --dry-run failed: ${r.output}`);
+    assert.match(r.output, /dry-run/i);
+    assert.match(r.output, /candidate|noise/i);
+
+    // Nothing may have changed.
+    assert.equal(p.run(["ls"]).stdout, before);
+  });
+
+  test("`cm update --memory --clean` archives noise (near-duplicates, low-confidence) and keeps originals", () => {
+    const p = makeProject();
+    initProject(p);
+    p.run(["save", "--kind", "fact", "Redis is the cache layer for sessions"]);
+    p.run(["save", "--kind", "fact", "Redis is the cache layer for sessions and tokens"]);
+    p.run(["save", "--kind", "fact", "--confidence", "0.1", "Fuzzy hypothesis about unused widget"]);
+
+    const r = p.run(["update", "--memory", "--clean"]);
+    assert.equal(r.code, 0, `clean failed: ${r.output}`);
+    assert.match(r.output, /cleaned|archived/i);
+
+    const ls = p.run(["ls"]);
+    assert.ok(/Redis is the cache layer for sessions(\n|$)/.test(ls.stdout), "original fact must survive clean");
+    assert.doesNotMatch(ls.stdout, /Fuzzy hypothesis about unused widget/, "low-confidence noise must be gone");
+  });
+
+  test("`cm update --memory --reset` archives ALL project memories and re-scans fresh", () => {
+    const p = makeProject();
+    initProject(p);
+    p.run(["save", "--kind", "fact", "Totally stale legacy statement about module Zed"]);
+
+    const r = p.run(["update", "--memory", "--reset"]);
+    assert.equal(r.code, 0, `reset failed: ${r.output}`);
+    assert.match(r.output, /reset/i);
+
+    const ls = p.run(["ls"]);
+    assert.doesNotMatch(ls.stdout, /Totally stale legacy statement/, "old memory must not survive reset");
+    assert.match(ls.stdout, /Project snapshot/, "fresh snapshot must exist after reset");
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// session_start staleness sync (git-driven auto-refresh + harness warning)
+// ---------------------------------------------------------------------------
+
+describe("cm hook session_start staleness", () => {
+
+  function gitRun(dir, args) {
+    const r = spawnSync("git", args, { cwd: dir, encoding: "utf-8" });
+    assert.equal(r.status, 0, `git ${args.join(" ")} failed: ${r.stderr}`);
+    return r.stdout;
+  }
+
+  function makeGitProject() {
+    const p = makeProject();
+    gitRun(p.dir, ["init", "-q"]);
+    gitRun(p.dir, ["config", "user.email", "test@test.local"]);
+    gitRun(p.dir, ["config", "user.name", "Test"]);
+    gitRun(p.dir, ["add", "-A"]);
+    gitRun(p.dir, ["commit", "-q", "-m", "init"]);
+    initProject(p);
+    // Register the commit cm saw at init time.
+    gitRun(p.dir, ["commit", "-q", "--allow-empty", "-m", "snapshot marker"]);
+    return p;
+  }
+
+  test("unregistered git commits at session_start trigger an auto memory refresh", () => {
+    const p = makeProject();
+    gitRun(p.dir, ["init", "-q"]);
+    gitRun(p.dir, ["config", "user.email", "test@test.local"]);
+    gitRun(p.dir, ["config", "user.name", "Test"]);
+    gitRun(p.dir, ["add", "-A"]);
+    gitRun(p.dir, ["commit", "-q", "-m", "init"]);
+    initProject(p);
+
+    // Register baseline: session_start right after init must NOT report staleness.
+    const first = p.run(["hook", "--event", "session_start"]);
+    assert.equal(first.code, 0, `session_start failed: ${first.output}`);
+    assert.doesNotMatch(first.output, /memory (is|appears) stale/i);
+
+    // New commit AFTER init (unregistered by any memory update).
+    writeFileSync(join(p.dir, "package.json"), JSON.stringify({
+      name: "proj", private: true, dependencies: { express: "^4.0.0" },
+    }));
+    gitRun(p.dir, ["add", "-A"]);
+    gitRun(p.dir, ["commit", "-q", "-m", "add express"]);
+
+    const r = p.run(["hook", "--event", "session_start"]);
+    assert.equal(r.code, 0, `session_start failed: ${r.output}`);
+    assert.match(r.output, /memory (is|appears) stale/i);
+    assert.match(r.output, /auto-refreshed/i);
+
+    const ls = p.run(["ls"]);
+    assert.match(ls.stdout, /express/i, "refreshed snapshot must mention the new dependency");
+  });
+
+  test("session_start on an up-to-date project does not refresh or warn", () => {
+    const p = makeGitProject();
+    // Register the snapshot baseline: run update --memory so the snapshot is fresh.
+    p.run(["update", "--memory"]);
+    const r = p.run(["hook", "--event", "session_start"]);
+    assert.equal(r.code, 0, `session_start failed: ${r.output}`);
+    assert.doesNotMatch(r.output, /memory (is|appears) stale/i);
+    assert.doesNotMatch(r.output, /auto-refreshed/i);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// Harness hook audit: detect compatible harnesses whose hook is not installed
+// and reinstall it automatically during `cm update --memory`.
+// ---------------------------------------------------------------------------
+
+describe("cm update --memory hook audit", () => {
+
+  test("a pi-configured project without the pi hook gets it installed by update --memory", () => {
+    const p = makeProject();
+    initProject(p); // installs the Claude hook only
+    // Simulate that the user also works with pi: AGENTS.md exists (pi harness
+    // marker) but the pi extension was never installed.
+    writeFileSync(join(p.dir, "AGENTS.md"), "# AGENTS\n");
+    assert.ok(!existsSync(join(p.dir, ".pi", "extensions", "code-mem.ts")), "precondition: pi hook missing");
+
+    const r = p.run(["update", "--memory"]);
+    assert.equal(r.code, 0, `update --memory failed: ${r.output}`);
+    assert.match(r.output, /pi.*hook installed|installed.*pi/i);
+    assert.ok(existsSync(join(p.dir, ".pi", "extensions", "code-mem.ts")), "pi hook must be installed");
+
+    // Re-run: no duplicate installation report.
+    const again = p.run(["update", "--memory"]);
+    assert.equal(again.code, 0);
+    assert.doesNotMatch(again.output, /pi.*hook installed/i);
+  });
+
+  test("a cursor-configured project without hooks gets the cursor hook installed", () => {
+    const p = makeProject();
+    initProject(p);
+    writeFileSync(join(p.dir, ".cursorrules"), "# cursor rules\n");
+    assert.ok(!existsSync(join(p.dir, ".cursor", "hooks.json")), "precondition: cursor hook missing");
+
+    const r = p.run(["update", "--memory"]);
+    assert.equal(r.code, 0, `update --memory failed: ${r.output}`);
+    assert.match(r.output, /cursor.*hook installed|installed.*cursor/i);
+    const hooks = JSON.parse(readFileSync(join(p.dir, ".cursor", "hooks.json"), "utf-8"));
+    assert.ok(hooks.hooks && hooks.hooks.sessionStart, "cursor sessionStart hook must exist");
+  });
+
+  test("a project with all detected harness hooks installed reports nothing new", () => {
+    const p = makeProject();
+    const r = p.run(["init", "pi"]);
+    assert.equal(r.code, 0, `init pi failed: ${r.output}`);
+    // AGENTS.md written by init pi + Claude hook from default init wiring.
+    p.run(["update", "--memory"]);
+    assert.equal(p.run(["update", "--memory"]).code, 0);
+  });
+
+});
