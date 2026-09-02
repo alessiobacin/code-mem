@@ -421,4 +421,5 @@ code-mem deliberately keeps its differentiators: local-first, zero recurring cos
 ## See Also
 
 - **[PHILOSOPHY.md](PHILOSOPHY.md)** — the full philosophy behind code-mem: local-first, kinds and layers, deterministic retrieval, zero dependencies, why simplicity wins
+- **[../tests/benchmark-comparison.md](../tests/benchmark-comparison.md)** — reproducible comparative benchmark (latency + top-3 accuracy) with notes in [../tests/benchmark-opinion.md](../tests/benchmark-opinion.md)
 - **(IT) [COMPARAZIONE.md](COMPARAZIONE.md)** — Italian version

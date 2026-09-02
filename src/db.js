@@ -193,6 +193,28 @@ function ensureRecallIndexes(d) {
   try { d.exec("PRAGMA auto_vacuum=FULL"); } catch {}
 }
 
+// A2a: wrap a multi-statement sequence in an explicit SQLite transaction.
+// BEGIN IMMEDIATE takes the write lock up front (no busy surprise mid-way),
+// fn() runs, COMMIT persists; any throw triggers ROLLBACK so dependent rows
+// (memory_items + memory_context, items + vectors, …) are never half-written
+// if the process dies or a statement fails. Nesting is collapsed: SQLite has
+// no native nested BEGIN, so the inner call joins the outer transaction.
+function withTransaction(d, fn) {
+  if (!d || d.__cmInTransaction) return fn();
+  d.exec("BEGIN IMMEDIATE");
+  d.__cmInTransaction = true;
+  try {
+    const out = fn();
+    d.exec("COMMIT");
+    return out;
+  } catch (e) {
+    try { d.exec("ROLLBACK"); } catch {}
+    throw e;
+  } finally {
+    d.__cmInTransaction = false;
+  }
+}
+
 function runStmt(d, sql, params = []) {
   return d.prepare(sql).run(...params);
 }

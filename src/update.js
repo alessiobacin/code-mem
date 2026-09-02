@@ -11,6 +11,53 @@ function compareVersions(a, b) {
   return 0;
 }
 
+function sha256Hex(text) {
+  return createHash("sha256").update(text, "utf-8").digest("hex");
+}
+
+// Update source base — overridable via CM_UPDATE_BASE so integrity behaviour
+// can be exercised against a local mirror (tests) without network access.
+function resolveUpdateBase() {
+  const override = process.env.CM_UPDATE_BASE;
+  if (override) return override.replace(/\/+$/, "");
+  const remoteSha = resolveRemoteCommitSha();
+  return remoteSha
+    ? `https://raw.githubusercontent.com/alessiobacin/code-mem/${remoteSha}`
+    : REPO_RAW_BASE;
+}
+
+// A remote checksum manifest (`bin/cm.sha256`, hex digest, optionally followed
+// by `  <filename>` à la shasum) pins the expected SHA-256 of the bundle.
+// - manifest present + digest matches  → proceed
+// - manifest present + digest differs  → REFUSE, nothing is written
+// - manifest absent (older mirror)     → warn and proceed (legacy behaviour)
+function verifyBundleChecksum(remoteBase, remoteBin) {
+  let manifest = null;
+  try {
+    manifest = downloadText(`${remoteBase}/bin/cm.sha256`);
+  } catch {}
+  if (manifest === null || String(manifest).trim() === "") {
+    console.log("Warning: no remote checksum manifest (bin/cm.sha256) — integrity check skipped.");
+    return true;
+  }
+  const expected = String(manifest).trim().split(/\s+/)[0].toLowerCase();
+  const actual = sha256Hex(remoteBin);
+  if (!/^[0-9a-f]{64}$/.test(expected)) {
+    console.log("Update aborted: remote checksum manifest is malformed (expected 64 hex chars).");
+    return false;
+  }
+  if (expected !== actual) {
+    console.log("Update aborted: SHA-256 checksum mismatch.");
+    console.log(`  expected: ${expected}`);
+    console.log(`  actual:   ${actual}`);
+    console.log("The downloaded bundle differs from the published checksum and was NOT installed.");
+    console.log("Retry later (transient corruption) or verify the source before using --force.");
+    return false;
+  }
+  console.log("Checksum OK (SHA-256 verified before install).");
+  return true;
+}
+
 function downloadText(url) {
   const escaped = url.replace(/"/g, '\\"');
   try {
@@ -53,10 +100,7 @@ function getInstalledSkillDirs() {
 }
 
 function runUpdate(force) {
-  const remoteSha = resolveRemoteCommitSha();
-  const remoteBase = remoteSha
-    ? `https://raw.githubusercontent.com/alessiobacin/code-mem/${remoteSha}`
-    : REPO_RAW_BASE;
+  const remoteBase = resolveUpdateBase();
   const remoteBin = downloadText(`${remoteBase}/bin/cm`);
   const remoteVersion = extractRemoteVersion(remoteBin);
   if (!remoteVersion) {
@@ -78,17 +122,26 @@ function runUpdate(force) {
     console.log(`Already up to date (${VERSION}).`);
     return;
   }
+  // Integrity gate: verify the remote bundle's SHA-256 against its published
+  // manifest BEFORE any local file is replaced.
+  if (!verifyBundleChecksum(remoteBase, remoteBin)) {
+    process.exit(1);
+  }
   writeFileSync(targetPath, remoteBin, "utf-8");
   try {
     execSync(`chmod +x "${targetPath.replace(/"/g, '\\"')}"`, { stdio: "ignore" });
   } catch {}
 
-  const remoteSkill = downloadText(`${remoteBase}/skill/SKILL.md`);
-  for (const dir of getInstalledSkillDirs()) {
-    try {
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "SKILL.md"), remoteSkill, "utf-8");
-    } catch {}
+  try {
+    const remoteSkill = downloadText(`${remoteBase}/skill/SKILL.md`);
+    for (const dir of getInstalledSkillDirs()) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "SKILL.md"), remoteSkill, "utf-8");
+      } catch {}
+    }
+  } catch {
+    console.log("Note: remote skill/SKILL.md unavailable — skipped skill refresh.");
   }
   if (cmp === 0 && !sameContent) {
     console.log(`Reinstalled cm ${remoteVersion} to refresh mismatched local contents.`);

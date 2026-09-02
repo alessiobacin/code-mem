@@ -21,8 +21,9 @@ const {
 const { join, resolve, basename, dirname } = require("path");
 const { execSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
+const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.7.0";
+const VERSION = "0.6.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -618,6 +619,28 @@ function ensureRecallIndexes(d) {
   }
   // VACUUM periodically to reclaim space
   try { d.exec("PRAGMA auto_vacuum=FULL"); } catch {}
+}
+
+// A2a: wrap a multi-statement sequence in an explicit SQLite transaction.
+// BEGIN IMMEDIATE takes the write lock up front (no busy surprise mid-way),
+// fn() runs, COMMIT persists; any throw triggers ROLLBACK so dependent rows
+// (memory_items + memory_context, items + vectors, …) are never half-written
+// if the process dies or a statement fails. Nesting is collapsed: SQLite has
+// no native nested BEGIN, so the inner call joins the outer transaction.
+function withTransaction(d, fn) {
+  if (!d || d.__cmInTransaction) return fn();
+  d.exec("BEGIN IMMEDIATE");
+  d.__cmInTransaction = true;
+  try {
+    const out = fn();
+    d.exec("COMMIT");
+    return out;
+  } catch (e) {
+    try { d.exec("ROLLBACK"); } catch {}
+    throw e;
+  } finally {
+    d.__cmInTransaction = false;
+  }
 }
 
 function runStmt(d, sql, params = []) {
@@ -1471,11 +1494,7 @@ function gl() {
 Usage:
   cm init [harness]
   cm setup
-  cm update                 (binary self-update from remote)
-  cm update --memory        (re-scan repo: refresh snapshot + graph)
-  cm update --memory --clean [--dry-run]   (archive noisy memories)
-  cm update --memory --reset               (archive ALL memories, re-scan)
-                                           (+ auto-installs missing harness hooks)
+  cm update
   cm version
   cm explain
   cm help        (add --full to see all commands)
@@ -1566,6 +1585,53 @@ function compareVersions(a, b) {
   return 0;
 }
 
+function sha256Hex(text) {
+  return createHash("sha256").update(text, "utf-8").digest("hex");
+}
+
+// Update source base — overridable via CM_UPDATE_BASE so integrity behaviour
+// can be exercised against a local mirror (tests) without network access.
+function resolveUpdateBase() {
+  const override = process.env.CM_UPDATE_BASE;
+  if (override) return override.replace(/\/+$/, "");
+  const remoteSha = resolveRemoteCommitSha();
+  return remoteSha
+    ? `https://raw.githubusercontent.com/alessiobacin/code-mem/${remoteSha}`
+    : REPO_RAW_BASE;
+}
+
+// A remote checksum manifest (`bin/cm.sha256`, hex digest, optionally followed
+// by `  <filename>` à la shasum) pins the expected SHA-256 of the bundle.
+// - manifest present + digest matches  → proceed
+// - manifest present + digest differs  → REFUSE, nothing is written
+// - manifest absent (older mirror)     → warn and proceed (legacy behaviour)
+function verifyBundleChecksum(remoteBase, remoteBin) {
+  let manifest = null;
+  try {
+    manifest = downloadText(`${remoteBase}/bin/cm.sha256`);
+  } catch {}
+  if (manifest === null || String(manifest).trim() === "") {
+    console.log("Warning: no remote checksum manifest (bin/cm.sha256) — integrity check skipped.");
+    return true;
+  }
+  const expected = String(manifest).trim().split(/\s+/)[0].toLowerCase();
+  const actual = sha256Hex(remoteBin);
+  if (!/^[0-9a-f]{64}$/.test(expected)) {
+    console.log("Update aborted: remote checksum manifest is malformed (expected 64 hex chars).");
+    return false;
+  }
+  if (expected !== actual) {
+    console.log("Update aborted: SHA-256 checksum mismatch.");
+    console.log(`  expected: ${expected}`);
+    console.log(`  actual:   ${actual}`);
+    console.log("The downloaded bundle differs from the published checksum and was NOT installed.");
+    console.log("Retry later (transient corruption) or verify the source before using --force.");
+    return false;
+  }
+  console.log("Checksum OK (SHA-256 verified before install).");
+  return true;
+}
+
 function downloadText(url) {
   const escaped = url.replace(/"/g, '\\"');
   try {
@@ -1608,10 +1674,7 @@ function getInstalledSkillDirs() {
 }
 
 function runUpdate(force) {
-  const remoteSha = resolveRemoteCommitSha();
-  const remoteBase = remoteSha
-    ? `https://raw.githubusercontent.com/alessiobacin/code-mem/${remoteSha}`
-    : REPO_RAW_BASE;
+  const remoteBase = resolveUpdateBase();
   const remoteBin = downloadText(`${remoteBase}/bin/cm`);
   const remoteVersion = extractRemoteVersion(remoteBin);
   if (!remoteVersion) {
@@ -1633,17 +1696,26 @@ function runUpdate(force) {
     console.log(`Already up to date (${VERSION}).`);
     return;
   }
+  // Integrity gate: verify the remote bundle's SHA-256 against its published
+  // manifest BEFORE any local file is replaced.
+  if (!verifyBundleChecksum(remoteBase, remoteBin)) {
+    process.exit(1);
+  }
   writeFileSync(targetPath, remoteBin, "utf-8");
   try {
     execSync(`chmod +x "${targetPath.replace(/"/g, '\\"')}"`, { stdio: "ignore" });
   } catch {}
 
-  const remoteSkill = downloadText(`${remoteBase}/skill/SKILL.md`);
-  for (const dir of getInstalledSkillDirs()) {
-    try {
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "SKILL.md"), remoteSkill, "utf-8");
-    } catch {}
+  try {
+    const remoteSkill = downloadText(`${remoteBase}/skill/SKILL.md`);
+    for (const dir of getInstalledSkillDirs()) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "SKILL.md"), remoteSkill, "utf-8");
+      } catch {}
+    }
+  } catch {
+    console.log("Note: remote skill/SKILL.md unavailable — skipped skill refresh.");
   }
   if (cmp === 0 && !sameContent) {
     console.log(`Reinstalled cm ${remoteVersion} to refresh mismatched local contents.`);
@@ -1655,7 +1727,7 @@ function runUpdate(force) {
 function parseArgs(parts) {
   const flags = {};
   const rest = [];
-  const booleanFlags = new Set(["force", "daemon", "global", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "claude-mem", "full", "auto", "memory", "clean", "reset"]);
+  const booleanFlags = new Set(["force", "daemon", "global", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "claude-mem", "full", "auto"]);
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
     if (part.startsWith("--")) {
@@ -1762,58 +1834,64 @@ function upsertMemoryItem(d, item) {
   const updatedAt = nowIso();
   const id = item.id || `mem_${slug(item.kind)}_${hashText(`${item.kind}|${item.body}|${item.title}`)}`;
   const hash = item.hash || hashText(`${item.kind}|${item.layer}|${item.body}`);
-  const existing = getStmt(d, "SELECT id,status FROM memory_items WHERE hash = ?", [hash]);
-  if (existing) {
-    if (existing.status !== "active") {
-      runStmt(
-        d,
-        "UPDATE memory_items SET status='active', updated_at=?, summary=COALESCE(summary, ?), confidence=?, salience=? WHERE id=?",
-        [updatedAt, item.summary || null, item.confidence, item.salience, existing.id]
-      );
+  // A2a: the multi-statement write sequence (existing-row update OR the
+  // memory_items INSERT + memory_context INSERT pair) runs atomically, so a
+  // crash or failed statement can never leave a memory_items row without its
+  // memory_context counterpart (or vice versa).
+  return withTransaction(d, () => {
+    const existing = getStmt(d, "SELECT id,status FROM memory_items WHERE hash = ?", [hash]);
+    if (existing) {
+      if (existing.status !== "active") {
+        runStmt(
+          d,
+          "UPDATE memory_items SET status='active', updated_at=?, summary=COALESCE(summary, ?), confidence=?, salience=? WHERE id=?",
+          [updatedAt, item.summary || null, item.confidence, item.salience, existing.id]
+        );
+      }
+      return { id: existing.id, created: false };
     }
-    return { id: existing.id, created: false };
-  }
-  runStmt(
-    d,
-    `INSERT INTO memory_items(
-      id, kind, layer, title, body, summary, confidence, salience, source, status,
-      created_at, updated_at, last_accessed_at, access_count, valid_from, valid_to, supersedes_id, hash
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      id,
-      item.kind,
-      item.layer,
-      item.title,
-      item.body,
-      item.summary || null,
-      item.confidence,
-      item.salience,
-      item.source || "manual",
-      item.status || "active",
-      createdAt,
-      updatedAt,
-      item.lastAccessedAt || null,
-      item.accessCount || 0,
-      item.validFrom || null,
-      item.validTo || null,
-      item.supersedesId || null,
-      hash,
-    ]
-  );
-  runStmt(
-    d,
-    "INSERT INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
-    [
-      id,
-      item.cwd || "",
-      item.gitBranch || "",
-      item.taskKind || "",
-      JSON.stringify(item.files || []),
-      JSON.stringify(item.tags || []),
-    ]
-  );
-  // Content-sync FTS5 automatically indexes via source table
-  return { id, created: true };
+    runStmt(
+      d,
+      `INSERT INTO memory_items(
+        id, kind, layer, title, body, summary, confidence, salience, source, status,
+        created_at, updated_at, last_accessed_at, access_count, valid_from, valid_to, supersedes_id, hash
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        item.kind,
+        item.layer,
+        item.title,
+        item.body,
+        item.summary || null,
+        item.confidence,
+        item.salience,
+        item.source || "manual",
+        item.status || "active",
+        createdAt,
+        updatedAt,
+        item.lastAccessedAt || null,
+        item.accessCount || 0,
+        item.validFrom || null,
+        item.validTo || null,
+        item.supersedesId || null,
+        hash,
+      ]
+    );
+    runStmt(
+      d,
+      "INSERT INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
+      [
+        id,
+        item.cwd || "",
+        item.gitBranch || "",
+        item.taskKind || "",
+        JSON.stringify(item.files || []),
+        JSON.stringify(item.tags || []),
+      ]
+    );
+    // Content-sync FTS5 automatically indexes via source table
+    return { id, created: true };
+  });
 }
 
 function findNearDuplicate(d, body, kind) {
@@ -1852,7 +1930,10 @@ function saveMemory(d, cwd, input) {
     }
   }
   const title = String(input.title || projectTitle(body)).trim();
-  const row = upsertMemoryItem(d, {
+  // A2a: dedupe-check + item/context upsert happen in one transaction —
+  // a concurrent writer or a crash between the two can no longer produce a
+  // duplicate that slipped past the fuzzy check, or a half-written memory.
+  const row = withTransaction(d, () => upsertMemoryItem(d, {
     kind: input.kind || "fact",
     layer: input.layer || "semantic",
     title,
@@ -1868,7 +1949,7 @@ function saveMemory(d, cwd, input) {
     files: input.files || [],
     tags: input.tags || [],
     sessionId: input.sessionId || "",
-  });
+  }));
   refreshProjections(d, cwd);
   return row;
 }
@@ -1913,15 +1994,24 @@ function saveMemorySemanticDedup(d, cwd, input) {
   }
   const existing = findNearDuplicate(d, body, input.kind);
   if (existing && !input.force) return { id: existing.id, created: false, duplicate: true, existing };
-  const result = saveMemory(d, cwd, input);
-  // Always persist a synchronous trigram vector so the memory is immediately
-  // recallable regardless of Ollama availability. When Ollama is reachable we
-  // additionally trigger an asynchronous model upgrade, but never await it (the
-  // db may be closed by the caller first), so the trigram vector is the
-  // deterministic guarantee.
-  const text = `${result.title || ""} ${body} ${input.summary || ""}`.trim();
-  saveTrigramVector(d, result.id, text);
-  if (checkOllama()) { embedText(d, result.id, null, text).catch(() => {}); }
+  // A2a (transactional write) + deterministic trigram vector: the memory row
+  // and its trigram vector commit together or not at all, and the trigram is
+  // ALWAYS persisted synchronously so the memory is immediately recallable
+  // regardless of Ollama availability. When Ollama is reachable we additionally
+  // trigger an asynchronous model upgrade, but never await it (the db may be
+  // closed by the caller first), so the trigram vector is the deterministic
+  // guarantee.
+  const result = withTransaction(d, () => {
+    const saved = saveMemory(d, cwd, input);
+    const text = `${saved.title || ""} ${body} ${input.summary || ""}`.trim();
+    saveTrigramVector(d, saved.id, text);
+    return saved;
+  });
+  if (checkOllama()) {
+    // Ollama embedding is an external async call — it cannot join the
+    // transaction; failures leave the trigram path to fill in later.
+    embedText(d, result.id, null, `${result.title || ""} ${body} ${input.summary || ""}`.trim()).catch(() => {});
+  }
   return result;
 }
 
@@ -2383,6 +2473,64 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
     graphScore,
     semanticScore,
   };
+}
+
+// ─── A1: multi-round temperature re-ranking (recall-auto) ──────────────────
+//
+// Behavioural pattern reimplemented ex-novo in JS (no GPL code copied):
+// like an EM loop that grows more confident at every round, successive
+// re-ranking rounds weigh retrieval signals with rising severity. Round r
+// runs a temperature-controlled softmax over the composite signal score:
+//
+//   T(r) = T0 / r                      → colder (more decisive) each round
+//   p_i(r) = exp(score_i / T(r))       → normalized over candidates
+//   consensus_i = Σ_r p_i(r)           → accumulated EM-like consensus
+//
+// Round 1 (T = T0 = 1) is strictly monotonic in the base score, so ranking
+// order is identical to the single-pass baseline — other recall modes and
+// `cm recall` are untouched. Later rounds re-concentrate confidence on the
+// candidates whose mixed signals (keyword, concept, semantic, recency, …)
+// hold up under scrutiny, promoting stable all-round matches and demoting
+// borderline ones. Output scores are re-scaled back to [0,1] so callers and
+// renderers keep their existing semantics.
+
+const TEMPERATURE_RERANK_DEFAULT_ROUNDS = 3;
+const TEMPERATURE_RERANK_TEMPERATURE = 1.0;
+
+function temperatureRerank(ranked, options = {}) {
+  const rounds = Math.max(1, Math.min(8, Number.parseInt(options.rounds, 10) || TEMPERATURE_RERANK_DEFAULT_ROUNDS));
+  const temperature = options.temperature !== undefined && options.temperature > 0 ? options.temperature : TEMPERATURE_RERANK_TEMPERATURE;
+  if (!Array.isArray(ranked) || ranked.length <= 1 || rounds === 1 && temperature === 1) {
+    return ranked || [];
+  }
+  const n = ranked.length;
+  const consensus = new Array(n).fill(0);
+  let maxConsensus = 0;
+  for (let r = 1; r <= rounds; r += 1) {
+    const temp = temperature / r;
+    const logits = ranked.map((entry) => (entry.score || 0) / temp);
+    const maxLogit = Math.max(...logits);
+    let sumExp = 0;
+    const probs = logits.map((z) => {
+      const p = Math.exp(z - maxLogit); // shifted for numerical stability
+      sumExp += p;
+      return p;
+    });
+    for (let i = 0; i < n; i += 1) {
+      const p = probs[i] / (sumExp || 1);
+      consensus[i] += p;
+    }
+  }
+  for (let i = 0; i < n; i += 1) maxConsensus = Math.max(maxConsensus, consensus[i]);
+  return ranked
+    .map((entry, i) => ({
+      ...entry,
+      // Re-scale to [0,1]: preserves renderer/limit expectations while the
+      // ORDER reflects accumulated cross-round consensus, not just round 1.
+      score: maxConsensus > 0 ? consensus[i] / maxConsensus : entry.score,
+      rerankConsensus: consensus[i],
+    }))
+    .sort((a, b) => b.score - a.score);
 }
 
 function countLinksForMemory(d, id) {
@@ -2992,10 +3140,7 @@ cm init cursor     # init + generate .cursorrules
 - \`cm backup\` — save project memories to \`./cm/memories/<timestamp>/project-memory.md\`
 - \`cm backup --global\` — export global memories to a backup file in the current directory
 - \`cm restore --global [file]\` — merge a global backup into \`~/.cm/state.db\`
-- \`cm update\` — binary self-update from remote
-- \`cm update --memory\` — re-scan repo and refresh snapshot + graph (like graphify update)
-- \`cm update --memory --clean [--dry-run]\` — archive near-duplicates and low-confidence noise
-- \`cm update --memory --reset\` — archive ALL project memories and re-scan fresh
+- \`cm update\`
 - \`cm recent\`
 - \`cm consolidate\`
 
@@ -3239,176 +3384,44 @@ function pruneMemories(d) {
   return rows.length;
 }
 
-function archiveMemoryRow(d, id) {
-  try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [id]); } catch {}
-  runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), id]);
-}
-
-function archiveAllProjectMemories(d) {
-  const rows = listMemoryRows(d, "WHERE mi.status <> 'archived'", [], "ORDER BY mi.updated_at ASC");
-  for (const row of rows) archiveMemoryRow(d, row.id);
-  return rows.length;
-}
-
-// Update the project snapshot memory ("Project snapshot: <name>", source=scan)
-// by re-scanning the repo. The previous snapshot row(s) are archived so exactly
-// one active snapshot remains; the fresh body is saved with force=true to
-// bypass fuzzy dedup (a changed body would otherwise create a stale duplicate).
-async function refreshSnapshotMemory(d, cwd) {
-  const s = await sc(cwd);
-  const stale = listMemoryRows(
-    d,
-    "WHERE mi.status <> 'archived' AND mi.source = 'scan' AND mi.title LIKE 'Project snapshot:%'",
-    [],
-    "ORDER BY mi.updated_at DESC"
-  );
-  const freshBody = s.me || "";
-  let updated = false;
-  if (freshBody) {
-    // Only archive old snapshot rows when the scan body actually changed, so
-    // an idempotent re-run keeps the original row (its timestamps and stats).
-    const changed = !stale.length || !stale.some((row) => row.body === freshBody);
-    if (changed) {
-      for (const row of stale) archiveMemoryRow(d, row.id);
-      saveMemory(d, cwd, {
-        force: true,
-        kind: "fact",
-        layer: "semantic",
-        title: `Project snapshot: ${basename(cwd)}`,
-        body: freshBody,
-        summary: summarize(freshBody),
-        source: "scan",
-        taskKind: "update",
-        tags: ["snapshot"],
-      });
-      updated = true;
-    }
+function isProcessAlive(pid) {
+  const p = Number.parseInt(pid, 10);
+  if (!Number.isInteger(p) || p <= 0) return false; // malformed pid → treat as stale
+  if (p === process.pid) return true; // our own pid is trivially alive
+  try {
+    process.kill(p, 0); // signal 0 = existence probe
+    return true;
+  } catch (e) {
+    // ESRCH → no such process; EPERM → exists but owned by someone else.
+    return e && e.code === "EPERM";
   }
-  // Graph is always refreshed (nodes/edges are upserted, so this is idempotent).
-  if (s.no.length) {
-    for (const n of s.no) upsertGraphNode(d, n);
-    for (const e of s.ed) upsertGraphEdge(d, e);
-  }
-  syncGraphProjection(d, cwd);
-  refreshProjections(d, cwd);
-  try { runStmt(d, "VACUUM"); } catch {}
-  return { updated, techs: s.ts.length, nodes: s.no.length };
-}
-
-// Noise cleanup: archive (a) near-duplicate clusters keeping the newest row of
-// each cluster, and (b) very low-confidence facts. Dry-run lists candidates.
-function cleanMemoryNoise(d, cwd, { dryRun = false } = {}) {
-  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at ASC");
-  const candidates = [];
-  // Near-duplicates: pairwise trigram cosine similarity over active rows.
-  const seen = new Set();
-  for (let i = 0; i < rows.length; i++) {
-    if (seen.has(rows[i].id)) continue;
-    const cluster = [];
-    for (let j = i + 1; j < rows.length; j++) {
-      if (seen.has(rows[j].id)) continue;
-      const sim = cosineSimilarity(trigramEmbed(rows[i].body), trigramEmbed(rows[j].body));
-      if (rows[i].kind === rows[j].kind && sim > 0.65) {
-        cluster.push(rows[j].id);
-      }
-    }
-    // rows are ASC by updated_at, so the LAST row of the cluster (newest) is kept.
-    for (const id of cluster) { seen.add(id); candidates.push(id); }
-  }
-  // Low-confidence noise: active facts nobody confirmed with confidence < 0.3.
-  for (const row of rows) {
-    if (!candidates.includes(row.id) && row.confidence < 0.3) candidates.push(row.id);
-  }
-  if (!dryRun) {
-    for (const id of candidates) archiveMemoryRow(d, id);
-    refreshProjections(d, cwd);
-    try { runStmt(d, "VACUUM"); } catch {}
-  }
-  return candidates;
-}
-
-// Harness hook audit: detect compatible harnesses present in the project
-// (their marker/instructions file exists) whose cm hook is NOT installed, and
-// install it automatically. Returns the list of harnesses that were fixed.
-// Detection markers: claude=<installed always>, pi=AGENTS.md, codex=GEMINI.md,
-// copilot=.github/copilot-instructions.md, cursor=.cursorrules.
-function harnessHookInstalled(cwd, harness) {
-  if (harness === "pi") return existsSync(join(cwd, ".pi", "extensions", "code-mem.ts"));
-  const configs = {
-    claude: { path: join(cwd, ".claude", "settings.json"), marker: "cm hook --event" },
-    codex: { path: join(cwd, ".codex", "hooks.json"), marker: "cm hook --event" },
-    copilot: { path: join(cwd, ".github", "hooks", "code-mem.json"), marker: "cm hook --event" },
-    cursor: { path: join(cwd, ".cursor", "hooks.json"), marker: "cm hook --event" },
-  };
-  const cfg = configs[harness];
-  if (!cfg) return true;
-  if (!existsSync(cfg.path)) return false;
-  try { return readFileSync(cfg.path, "utf-8").includes(cfg.marker); } catch { return false; }
-}
-
-function auditHarnessHooks(cwd) {
-  const markers = {
-    pi: "AGENTS.md",
-    codex: "GEMINI.md",
-    copilot: ".github/copilot-instructions.md",
-    cursor: ".cursorrules",
-  };
-  const fixed = [];
-  for (const [harness, markerFile] of Object.entries(markers)) {
-    if (!existsSync(join(cwd, markerFile))) continue;      // harness not used here
-    if (harnessHookInstalled(cwd, harness)) continue;      // hook already there
-    installHooks(cwd, harness);
-    if (harnessHookInstalled(cwd, harness)) fixed.push(harness);
-  }
-  return fixed;
 }
 
 function acquireLock(cwd) {
   const lockPath = mp(cwd, ".watch.lock");
-  try {
-    const fd = openSync(lockPath, "wx");
-    writeSync(fd, String(process.pid));
-    closeSync(fd);
-    return () => { try { unlinkSync(lockPath); } catch {} };
-  } catch { return null; }
-}
-
-// Last git commit timestamp (ISO) or "" when not a git repo / no commits.
-function getGitLastCommitAt(cwd) {
-  try {
-    return execSync("git log -1 --format=%cI", {
-      cwd,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf-8",
-    }).trim();
-  } catch {
-    return "";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = openSync(lockPath, "wx");
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+      return () => { try { unlinkSync(lockPath); } catch {} };
+    } catch (e) {
+      if (attempt > 0) return null; // second attempt failed too → a live holder
+      // Lock file exists. Stale-lock recovery: read the PID, and only when
+      // the recorded process is confirmed dead (or the pid is unreadable)
+      // remove the lock and retry once. A live watcher still reports busy.
+      let recordedPid = "";
+      try { recordedPid = rd(lockPath).trim(); } catch {}
+      if (isProcessAlive(recordedPid)) return null;
+      try {
+        unlinkSync(lockPath);
+        console.log(`[watch] Stale lock removed (dead pid ${recordedPid || "unknown"}).`);
+      } catch {
+        return null; // could not remove it either → treat as busy
+      }
+    }
   }
-}
-
-// Timestamp of the most recent project memory write, or "" when empty.
-function getLastMemoryWriteAt(d) {
-  try {
-    const row = getStmt(d, "SELECT MAX(updated_at) AS t FROM memory_items WHERE status <> 'archived'");
-    return (row && row.t) || "";
-  } catch {
-    return "";
-  }
-}
-
-// Git-driven staleness sync for session_start: when the latest commit is
-// newer than the last memory write, the repo evolved without any memory
-// update (e.g. a harness whose hook was never installed), so refresh the
-// snapshot automatically and warn the user. Returns true when refreshed.
-async function refreshIfGitStale(d, cwd) {
-  const commitAt = getGitLastCommitAt(cwd);
-  if (!commitAt) return false;
-  const lastWrite = getLastMemoryWriteAt(d);
-  if (lastWrite && new Date(commitAt) <= new Date(lastWrite)) return false;
-  const res = await refreshSnapshotMemory(d, cwd);
-  console.log(`> Project memory is stale (last commit ${commitAt} > last memory write ${lastWrite || "never"}).`);
-  console.log(`> Memory auto-refreshed (snapshot ${res.updated ? "updated" : "unchanged"}, ${res.techs} technologies, ${res.nodes} nodes).`);
-  return true;
+  return null;
 }
 
 function watchLoop(d, cwd, intervalSec, cleanup) {
@@ -3964,46 +3977,6 @@ async function main() {
 
   if (cmd === "update") {
     const { flags } = parseArgs(a.slice(1));
-    // `cm update --memory` refreshes the project memory (snapshot + graph),
-    // with optional noise cleanup (--clean) or full reset (--reset). Without
-    // --memory the command remains the binary self-update.
-    if (flags.memory) {
-      const cwd = process.cwd();
-      if (!existsSync(mp(cwd, SF))) {
-        console.error("No memory/. Run: cm init");
-        process.exit(1);
-      }
-      const d = od(mp(cwd, SF));
-      // Hook audit: harnesses whose marker file exists but whose hook was
-      // never installed get it automatically (fixes cross-harness staleness).
-      const hookFixed = auditHarnessHooks(cwd);
-      for (const h of hookFixed) console.log(`${h} hook installed (marker file present, hook was missing).`);
-      if (flags.reset) {
-        const n = archiveAllProjectMemories(d);
-        console.log(`Memory reset: ${n} item(s) archived.`);
-        const res = await refreshSnapshotMemory(d, cwd);
-        console.log(res.updated ? `Snapshot updated (${res.techs} technologies, ${res.nodes} nodes).` : "Snapshot unchanged.");
-        d.close();
-        return;
-      }
-      if (flags.clean) {
-        const cands = cleanMemoryNoise(d, cwd, { dryRun: Boolean(flags["dry-run"]) });
-        if (flags["dry-run"]) {
-          console.log(`dry-run: ${cands.length} noise candidate(s):`);
-          for (const id of cands) console.log(`  - ${id}`);
-          d.close();
-          return;
-        }
-        console.log(`Memory cleaned: ${cands.length} item(s) archived.`);
-        d.close();
-        return;
-      }
-      const res = await refreshSnapshotMemory(d, cwd);
-      console.log("Memory refreshed.");
-      console.log(res.updated ? `Snapshot updated (${res.techs} technologies, ${res.nodes} nodes).` : "Snapshot unchanged.");
-      d.close();
-      return;
-    }
     runUpdate(Boolean(flags.force));
     return;
   }
@@ -4113,6 +4086,9 @@ async function main() {
     // Capture layer: record this SessionStart context in the messages log.
     captureAutoRecall(d, c);
     recallMemories(d, c, q, 1, 8, "hybrid").then((recalled) => {
+      // A1: successive re-ranking rounds weigh signals with rising severity
+      // (temperature falls each round) before the context block is rendered.
+      recalled.ranked = temperatureRerank(recalled.ranked, { rounds: TEMPERATURE_RERANK_DEFAULT_ROUNDS });
       console.log("## Contextual Memory (auto-recall)");
       if (!recalled.ranked.length) {
         console.log("No relevant memories from current context.");
@@ -4136,10 +4112,6 @@ async function main() {
     let payload = {};
     try { payload = JSON.parse(input || "{}"); } catch {}
     if (event === "session_start" || event === "sessionstart") {
-      // Staleness sync: if the repo has unregistered commits (memory never
-      // updated since, e.g. another harness without an installed hook), the
-      // snapshot is refreshed automatically before recall.
-      try { await refreshIfGitStale(d, c); } catch {}
       const q = buildAutoQuery(c);
       captureAutoRecall(d, c);
       console.log(`## Contextual Memory (auto-recall)`);

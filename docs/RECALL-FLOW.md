@@ -52,3 +52,13 @@ flowchart TD
 5. **Score a 8+ dimensioni** — `scoreMemory()` combina keyword, recency, access, context (branch/cwd), kind-priority, grafo, concept, source, distanza di link. `--mode` ribilancia il mix: `semantic` pesa la similarita' semantica a 0.55, `hybrid` (default) mantiene il blend deterministico completo (con fallback semantic-driven quando keyword/concept sono trascurabili), `keyword` salta del tutto gli embedding.
 6. **Selezione** — filtro `score>0.05`, ordinamento desc, slice su `limit`; i risultati aggiornano `access_count`.
 7. **Rendering** — `--level` decide quanto mostrare (titoli → +summary → body completo con `Explain:`).
+
+## Re-ranking a temperatura multi-round (solo `recall-auto`)
+
+Prima del rendering, `cm recall-auto` applica un re-ranking EM-like a 3 round sulla lista candidata (A1, `temperatureRerank()` in `src/retrieval.js`):
+
+- il round *r* esegue una softmax a temperatura `T0/r` (T0 = 1.0) sullo score composito — piu' fredda (piu' decisiva) ad ogni round;
+- le probabilita' dei round si accumulano in un consenso `consensus_i = Σ_r p_i(r)`;
+- il round 1 (T = T0) è strettamente monotono nello score base: l'ordine è identico al ranking a singolo passaggio, quindi `cm recall` e gli altri modi non sono toccati;
+- i round successivi riconcentrano la confidenza sui candidati i cui segnali misti (keyword, concept, semantic, recency, …) reggono all'esame, promuovendo i match stabili e declassando quelli borderline;
+- gli score finali vengono riscalati in `[0,1]` (con `rerankConsensus` come metadato) e l'esito è deterministico tra run ripetuti.

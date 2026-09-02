@@ -156,3 +156,4 @@ Cio' che resta fermo: **nessun servizio cloud, nessuna API REST, nessun sync di 
 
 - **[PHILOSOPHY.md](PHILOSOPHY.md)** — English version
 - **[COMPARAZIONE.md](COMPARAZIONE.md)** — comparazione con altri sistemi di memoria
+- **[../tests/benchmark-comparison.md](../tests/benchmark-comparison.md)** — benchmark comparativo riproducibile (latenza + accuratezza top-3), con note in [../tests/benchmark-opinion.md](../tests/benchmark-opinion.md)

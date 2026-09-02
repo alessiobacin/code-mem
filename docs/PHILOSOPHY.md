@@ -158,4 +158,5 @@ The same determinism now extends to memory maintenance itself: saves are dedupli
 ## See Also
 
 - **[COMPARISON.md](COMPARISON.md)** — detailed comparison with other memory systems
+- **[../tests/benchmark-comparison.md](../tests/benchmark-comparison.md)** — reproducible comparative benchmark (latency + top-3 accuracy) with notes in [../tests/benchmark-opinion.md](../tests/benchmark-opinion.md)
 - **[FILOSOFIA.md](FILOSOFIA.md)** — Italian version

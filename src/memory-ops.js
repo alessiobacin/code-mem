@@ -132,14 +132,44 @@ function pruneMemories(d) {
   return rows.length;
 }
 
+function isProcessAlive(pid) {
+  const p = Number.parseInt(pid, 10);
+  if (!Number.isInteger(p) || p <= 0) return false; // malformed pid → treat as stale
+  if (p === process.pid) return true; // our own pid is trivially alive
+  try {
+    process.kill(p, 0); // signal 0 = existence probe
+    return true;
+  } catch (e) {
+    // ESRCH → no such process; EPERM → exists but owned by someone else.
+    return e && e.code === "EPERM";
+  }
+}
+
 function acquireLock(cwd) {
   const lockPath = mp(cwd, ".watch.lock");
-  try {
-    const fd = openSync(lockPath, "wx");
-    writeSync(fd, String(process.pid));
-    closeSync(fd);
-    return () => { try { unlinkSync(lockPath); } catch {} };
-  } catch { return null; }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = openSync(lockPath, "wx");
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+      return () => { try { unlinkSync(lockPath); } catch {} };
+    } catch (e) {
+      if (attempt > 0) return null; // second attempt failed too → a live holder
+      // Lock file exists. Stale-lock recovery: read the PID, and only when
+      // the recorded process is confirmed dead (or the pid is unreadable)
+      // remove the lock and retry once. A live watcher still reports busy.
+      let recordedPid = "";
+      try { recordedPid = rd(lockPath).trim(); } catch {}
+      if (isProcessAlive(recordedPid)) return null;
+      try {
+        unlinkSync(lockPath);
+        console.log(`[watch] Stale lock removed (dead pid ${recordedPid || "unknown"}).`);
+      } catch {
+        return null; // could not remove it either → treat as busy
+      }
+    }
+  }
+  return null;
 }
 
 function watchLoop(d, cwd, intervalSec, cleanup) {

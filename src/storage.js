@@ -52,58 +52,64 @@ function upsertMemoryItem(d, item) {
   const updatedAt = nowIso();
   const id = item.id || `mem_${slug(item.kind)}_${hashText(`${item.kind}|${item.body}|${item.title}`)}`;
   const hash = item.hash || hashText(`${item.kind}|${item.layer}|${item.body}`);
-  const existing = getStmt(d, "SELECT id,status FROM memory_items WHERE hash = ?", [hash]);
-  if (existing) {
-    if (existing.status !== "active") {
-      runStmt(
-        d,
-        "UPDATE memory_items SET status='active', updated_at=?, summary=COALESCE(summary, ?), confidence=?, salience=? WHERE id=?",
-        [updatedAt, item.summary || null, item.confidence, item.salience, existing.id]
-      );
+  // A2a: the multi-statement write sequence (existing-row update OR the
+  // memory_items INSERT + memory_context INSERT pair) runs atomically, so a
+  // crash or failed statement can never leave a memory_items row without its
+  // memory_context counterpart (or vice versa).
+  return withTransaction(d, () => {
+    const existing = getStmt(d, "SELECT id,status FROM memory_items WHERE hash = ?", [hash]);
+    if (existing) {
+      if (existing.status !== "active") {
+        runStmt(
+          d,
+          "UPDATE memory_items SET status='active', updated_at=?, summary=COALESCE(summary, ?), confidence=?, salience=? WHERE id=?",
+          [updatedAt, item.summary || null, item.confidence, item.salience, existing.id]
+        );
+      }
+      return { id: existing.id, created: false };
     }
-    return { id: existing.id, created: false };
-  }
-  runStmt(
-    d,
-    `INSERT INTO memory_items(
-      id, kind, layer, title, body, summary, confidence, salience, source, status,
-      created_at, updated_at, last_accessed_at, access_count, valid_from, valid_to, supersedes_id, hash
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      id,
-      item.kind,
-      item.layer,
-      item.title,
-      item.body,
-      item.summary || null,
-      item.confidence,
-      item.salience,
-      item.source || "manual",
-      item.status || "active",
-      createdAt,
-      updatedAt,
-      item.lastAccessedAt || null,
-      item.accessCount || 0,
-      item.validFrom || null,
-      item.validTo || null,
-      item.supersedesId || null,
-      hash,
-    ]
-  );
-  runStmt(
-    d,
-    "INSERT INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
-    [
-      id,
-      item.cwd || "",
-      item.gitBranch || "",
-      item.taskKind || "",
-      JSON.stringify(item.files || []),
-      JSON.stringify(item.tags || []),
-    ]
-  );
-  // Content-sync FTS5 automatically indexes via source table
-  return { id, created: true };
+    runStmt(
+      d,
+      `INSERT INTO memory_items(
+        id, kind, layer, title, body, summary, confidence, salience, source, status,
+        created_at, updated_at, last_accessed_at, access_count, valid_from, valid_to, supersedes_id, hash
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        item.kind,
+        item.layer,
+        item.title,
+        item.body,
+        item.summary || null,
+        item.confidence,
+        item.salience,
+        item.source || "manual",
+        item.status || "active",
+        createdAt,
+        updatedAt,
+        item.lastAccessedAt || null,
+        item.accessCount || 0,
+        item.validFrom || null,
+        item.validTo || null,
+        item.supersedesId || null,
+        hash,
+      ]
+    );
+    runStmt(
+      d,
+      "INSERT INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
+      [
+        id,
+        item.cwd || "",
+        item.gitBranch || "",
+        item.taskKind || "",
+        JSON.stringify(item.files || []),
+        JSON.stringify(item.tags || []),
+      ]
+    );
+    // Content-sync FTS5 automatically indexes via source table
+    return { id, created: true };
+  });
 }
 
 function findNearDuplicate(d, body, kind) {
@@ -142,7 +148,10 @@ function saveMemory(d, cwd, input) {
     }
   }
   const title = String(input.title || projectTitle(body)).trim();
-  const row = upsertMemoryItem(d, {
+  // A2a: dedupe-check + item/context upsert happen in one transaction —
+  // a concurrent writer or a crash between the two can no longer produce a
+  // duplicate that slipped past the fuzzy check, or a half-written memory.
+  const row = withTransaction(d, () => upsertMemoryItem(d, {
     kind: input.kind || "fact",
     layer: input.layer || "semantic",
     title,
@@ -158,7 +167,7 @@ function saveMemory(d, cwd, input) {
     files: input.files || [],
     tags: input.tags || [],
     sessionId: input.sessionId || "",
-  });
+  }));
   refreshProjections(d, cwd);
   return row;
 }
@@ -203,15 +212,24 @@ function saveMemorySemanticDedup(d, cwd, input) {
   }
   const existing = findNearDuplicate(d, body, input.kind);
   if (existing && !input.force) return { id: existing.id, created: false, duplicate: true, existing };
-  const result = saveMemory(d, cwd, input);
-  // Always persist a synchronous trigram vector so the memory is immediately
-  // recallable regardless of Ollama availability. When Ollama is reachable we
-  // additionally trigger an asynchronous model upgrade, but never await it (the
-  // db may be closed by the caller first), so the trigram vector is the
-  // deterministic guarantee.
-  const text = `${result.title || ""} ${body} ${input.summary || ""}`.trim();
-  saveTrigramVector(d, result.id, text);
-  if (checkOllama()) { embedText(d, result.id, null, text).catch(() => {}); }
+  // A2a (transactional write) + deterministic trigram vector: the memory row
+  // and its trigram vector commit together or not at all, and the trigram is
+  // ALWAYS persisted synchronously so the memory is immediately recallable
+  // regardless of Ollama availability. When Ollama is reachable we additionally
+  // trigger an asynchronous model upgrade, but never await it (the db may be
+  // closed by the caller first), so the trigram vector is the deterministic
+  // guarantee.
+  const result = withTransaction(d, () => {
+    const saved = saveMemory(d, cwd, input);
+    const text = `${saved.title || ""} ${body} ${input.summary || ""}`.trim();
+    saveTrigramVector(d, saved.id, text);
+    return saved;
+  });
+  if (checkOllama()) {
+    // Ollama embedding is an external async call — it cannot join the
+    // transaction; failures leave the trigram path to fill in later.
+    embedText(d, result.id, null, `${result.title || ""} ${body} ${input.summary || ""}`.trim()).catch(() => {});
+  }
   return result;
 }
 

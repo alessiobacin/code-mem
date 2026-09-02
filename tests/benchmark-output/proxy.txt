@@ -1,0 +1,1 @@
+PROXY inserted=100000 lookup_hits=10000 ingest_s=0.018015 ingest_ops_per_s=5550930 lookup_s=0.000935 lookup_ops_per_s=10695188
