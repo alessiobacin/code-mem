@@ -1,4 +1,6 @@
 node_modules/
+.codex/
+graphify-out/
 *.log
 .DS_Store
 
