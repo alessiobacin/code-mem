@@ -204,6 +204,16 @@ function cmdHistory(d, c, args) {
   if (Object.keys(byMonth).length) lines.push(`  by month: ${Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => `${k}×${v}`).join(", ")}`);
   const ents = [...extractEntities(rows.map((r) => ({ text: `${r.title}\n${r.body}` }))).values()].sort((a, b) => b.count - a.count).slice(0, 8);
   if (ents.length) lines.push(`  top entities: ${ents.map((e) => `${e.name}×${e.count}`).join(", ")}`);
+  if (flags.msgs) {
+    // Conversation view (IMP-07): recent captured rows alongside the digest.
+    try {
+      const mr = allStmt(d, "SELECT role,content,session_id,timestamp FROM messages ORDER BY id DESC LIMIT 15");
+      lines.push("", `Conversations (latest ${mr.length}):`);
+      for (const m of mr.slice().reverse()) {
+        lines.push(`  ${String(m.timestamp || "").slice(0, 19)}  [${m.role}] ${String(m.content || "").slice(0, 160)}`);
+      }
+    } catch {}
+  }
   console.log(lines.join("\n"));
 }
 

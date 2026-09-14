@@ -32,6 +32,7 @@ declarations are hoisted. `build/bundle.mjs` lists the canonical ORDER array.
 | `retrieval.js` | scoring, recall pipeline, renderRecall |
 | `context.js` | sc (repo scan), setupHarness, installHooks, printRows |
 | `memory-ops.js` | replace/remove/consolidate/prune, acquireLock, **watchLoop** |
+| `mcp.js` | `cm mcp` stdio JSON-RPC server (memory_search/timeline/get) |
 | `graph-export.js` | communities + GraphML/Neo4j/HTML/SVG export |
 | `entities.js` | tech/entity extraction, cmdEntities, cmdHistory |
 | `main.js` | CLI dispatch (main + installed main().catch) |

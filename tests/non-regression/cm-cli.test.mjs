@@ -24,7 +24,7 @@
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -510,6 +510,82 @@ describe("cm update --memory hook audit", () => {
     // AGENTS.md written by init pi + Claude hook from default init wiring.
     p.run(["update", "--memory"]);
     assert.equal(p.run(["update", "--memory"]).code, 0);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// cm mcp — stdio JSON-RPC server (IMP-01)
+// ---------------------------------------------------------------------------
+
+describe("cm mcp", () => {
+
+  // Drive the stdio server: send N JSON-RPC requests, collect N responses.
+  function mcpSession(p, requests) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [BIN, "mcp"], { cwd: p.dir, env: p.env });
+      let out = "";
+      const responses = [];
+      const timer = setTimeout(() => { child.kill(); reject(new Error("mcp timeout")); }, 30000);
+      child.stdout.on("data", (chunk) => {
+        out += chunk.toString();
+        const lines = out.split("\n");
+        out = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try { responses.push(JSON.parse(line)); } catch {}
+          if (responses.length >= requests.length) {
+            clearTimeout(timer);
+            child.kill();
+            resolve(responses);
+          }
+        }
+      });
+      child.on("error", (e) => { clearTimeout(timer); reject(e); });
+      for (const req of requests) child.stdin.write(`${JSON.stringify(req)}\n`);
+    });
+  }
+
+  test("`cm mcp` answers initialize + tools/list with the 3 memory tools", async () => {
+    const p = makeProject();
+    initProject(p);
+    const res = await mcpSession(p, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05" } },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    ]);
+    assert.equal(res[0].result.serverInfo.name, "cm");
+    const names = res[1].result.tools.map((t) => t.name).sort();
+    assert.deepEqual(names, ["memory_get", "memory_search", "memory_timeline"]);
+  });
+
+  test("`memory_search` finds a saved fact and `memory_get` returns its body", async () => {
+    const p = makeProject();
+    initProject(p);
+    p.run(["save", "--kind", "fact", "MCP probe fact about hexagonal backups"]);
+    const [searchRes] = await mcpSession(p, [
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "memory_search", arguments: { query: "hexagonal backups", limit: 3 } } },
+    ]);
+    const hits = JSON.parse(searchRes.result.content[0].text);
+    assert.ok(hits.length >= 1, "expected at least one hit");
+    assert.match(hits[0].title + hits[0].summary, /hexagonal backups/i);
+    const [getRes] = await mcpSession(p, [
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "memory_get", arguments: { id: hits[0].id } } },
+    ]);
+    const full = JSON.parse(getRes.result.content[0].text);
+    assert.match(full.body, /hexagonal backups/i);
+  });
+
+  test("`memory_timeline` lists recent rows and unknown methods error cleanly", async () => {
+    const p = makeProject();
+    initProject(p);
+    p.run(["save", "--kind", "decision", "MCP timeline decision marker"]);
+    const res = await mcpSession(p, [
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "memory_timeline", arguments: { limit: 5 } } },
+      { jsonrpc: "2.0", id: 2, method: "nope/unknown" },
+    ]);
+    const rows = JSON.parse(res[0].result.content[0].text);
+    assert.ok(rows.some((r) => /timeline decision marker/i.test(r.title)), "timeline must include the saved decision");
+    assert.equal(res[1].error.code, -32601);
   });
 
 });

@@ -64,7 +64,11 @@ function gl() {
 Usage:
   cm init [harness]
   cm setup
-  cm update
+  cm update                 (binary self-update from remote)
+  cm update --memory        (re-scan repo: refresh snapshot + graph)
+  cm update --memory --clean [--dry-run]   (archive noisy memories)
+  cm update --memory --reset               (archive ALL memories, re-scan)
+                                           (+ auto-installs missing harness hooks)
   cm version
   cm explain
   cm help        (add --full to see all commands)
@@ -92,6 +96,7 @@ Memory read commands:
   cm watch [--interval N] [--daemon]
   cm project
   cm consolidate
+  cm mcp           (MCP stdio server: memory tools for MCP harnesses)
 
 Capture layer:
   cm save --auto [--role dev|agent] <text>   record a conversation row (messages)

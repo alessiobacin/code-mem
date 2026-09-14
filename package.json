@@ -6,6 +6,7 @@
   "description": "Progetto \"code-mem\", orchestrato con yano-orchestrator.",
   "scripts": {
     "build": "node build/bundle.mjs",
-    "test": "node --test tests/non-regression/cm-cli.test.mjs"
+    "lint": "for f in src/*.js; do node --check \"$f\" || exit 1; done; echo LINT-OK",
+    "test": "node --test tests/non-regression/cm-cli.test.mjs && bash tests/test-e2e.sh && bash tests/tddb/run-all.sh"
   }
 }

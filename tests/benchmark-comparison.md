@@ -15,3 +15,15 @@ An ex-novo C open-addressing hash proxy, compiled in `/tmp/detwin-proxy` (detwin
 ## Evaluation and iteration
 
 A2 improves recall latency materially while preserving retrieval accuracy. Write throughput regresses ~49%, expected from transactional durability and per-command CLI startup; no safe optimization was identified without weakening A2 guarantees. The benchmark script is reproducible (`tests/run-comparative-benchmark.sh`) and writes CSV/proxy output under `tests/benchmark-output/`.
+
+## Run 2026-09-14 (v0.7.0: update --memory, MCP, fetch hardening)
+
+Protocol: throwaway project, isolated HOME, 20 sequential `cm save --kind fact`, 10× `cm recall --limit 3`, 10 paraphrase accuracy probes (2 rounds × 5 paraphrases, hit = intended fact in top-3). No Ollama (trigram fallback). Machine-local numbers, process startup included.
+
+| Metric | Value |
+|---|---:|
+| Write burst (20 saves) | 1.59 s (~80 ms/op) |
+| Recall burst (10 queries) | 1.39 s (~140 ms/query) |
+| Accuracy top-3 (paraphrase) | 100% (10/10) |
+
+Notes: per-op cost is dominated by Node process startup + SQLite open, not by scoring. MCP `memory_search` reuses the same `recallMemories` pipeline, so recall figures apply to the MCP path as well (minus one process spawn, persistent server).

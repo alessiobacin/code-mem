@@ -310,6 +310,10 @@ async function setupHarness() {
     join(process.env.HOME || "", ".claude", "skills", "cm"),
     join(process.env.HOME || "", ".codex", "skills", "cm"),
     join(process.env.HOME || "", ".cursor", "skills", "cm"),
+    join(process.env.HOME || "", ".gemini", "skills", "cm"),
+    join(process.env.HOME || "", ".qwen", "skills", "cm"),
+    join(process.env.HOME || "", ".config", "opencode", "skills", "cm"),
+    join(process.env.HOME || "", ".codeium", "windsurf", "skills", "cm"),
   ];
   let n = 0;
   for (const d of dirs) {
@@ -336,9 +340,25 @@ async function installHooks(cwd, harness = "claude") {
   const configs = {
     claude: { path: join(cwd, ".claude", "settings.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "Stop", command: "cm hook --event" },
     codex: { path: join(cwd, ".codex", "hooks.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "Stop", command: "cm hook --event" },
+    gemini: { path: join(cwd, ".gemini", "settings.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "SessionEnd", command: "cm hook --event" },
+    qwen: { path: join(cwd, ".qwen", "settings.json"), start: "SessionStart", prompt: "UserPromptSubmit", stop: "SessionEnd", command: "cm hook --event" },
     copilot: { path: join(cwd, ".github", "hooks", "code-mem.json"), start: "sessionStart", prompt: "userPromptSubmitted", stop: "agentStop", command: "cm hook --event" },
     cursor: { path: join(cwd, ".cursor", "hooks.json"), start: "sessionStart", prompt: "beforeSubmitPrompt", stop: "afterAgentResponse", command: "cm hook --event" },
   };
+  if (harness === "opencode") {
+    // opencode.json has its own schema (verified: mcp/plugin keys, no hooks
+    // object) — the supported integration is the MCP server plus AGENTS.md.
+    console.log("opencode: add the MCP server to opencode.json:");
+    console.log('  {"mcp": {"cm": {"type": "local", "command": ["cm", "mcp"]}}}');
+    console.log("AGENTS.md instructions are read natively by opencode.");
+    return;
+  }
+  if (harness === "windsurf") {
+    // Windsurf has no CLI hook surface; the global skill
+    // (~/.codeium/windsurf/skills/cm) plus .windsurf/rules/cm.md cover it.
+    console.log("windsurf: skill + .windsurf/rules/cm.md installed (no hook surface).");
+    return;
+  }
   const config = configs[harness];
   if (!config) return;
   const dir = dirname(config.path);
@@ -368,7 +388,7 @@ async function installHooks(cwd, harness = "claude") {
     if ((harness === "copilot" || harness === "cursor") && !settings.version) settings.version = 1;
     if (!settings.hooks) settings.hooks = {};
     const commandFor = (event) => `${config.command} ${event === config.start ? "session_start" : event === config.prompt ? "prompt" : "response"}`;
-    const entry = (event) => harness === "claude" || harness === "codex"
+    const entry = (event) => harness === "claude" || harness === "codex" || harness === "gemini" || harness === "qwen"
       ? { matcher: "", hooks: [{ type: "command", command: `if [ -d memory ]; then ${commandFor(event)}; fi` }] }
       : harness === "copilot"
         ? { type: "command", bash: `if [ -d memory ]; then ${commandFor(event)}; fi` }

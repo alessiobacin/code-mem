@@ -17,10 +17,10 @@ function sha256Hex(text) {
 
 // Update source base — overridable via CM_UPDATE_BASE so integrity behaviour
 // can be exercised against a local mirror (tests) without network access.
-function resolveUpdateBase() {
+async function resolveUpdateBase() {
   const override = process.env.CM_UPDATE_BASE;
   if (override) return override.replace(/\/+$/, "");
-  const remoteSha = resolveRemoteCommitSha();
+  const remoteSha = await resolveRemoteCommitSha();
   return remoteSha
     ? `https://raw.githubusercontent.com/alessiobacin/code-mem/${remoteSha}`
     : REPO_RAW_BASE;
@@ -31,10 +31,10 @@ function resolveUpdateBase() {
 // - manifest present + digest matches  → proceed
 // - manifest present + digest differs  → REFUSE, nothing is written
 // - manifest absent (older mirror)     → warn and proceed (legacy behaviour)
-function verifyBundleChecksum(remoteBase, remoteBin) {
+async function verifyBundleChecksum(remoteBase, remoteBin) {
   let manifest = null;
   try {
-    manifest = downloadText(`${remoteBase}/bin/cm.sha256`);
+    manifest = await downloadText(`${remoteBase}/bin/cm.sha256`);
   } catch {}
   if (manifest === null || String(manifest).trim() === "") {
     console.log("Warning: no remote checksum manifest (bin/cm.sha256) — integrity check skipped.");
@@ -58,26 +58,35 @@ function verifyBundleChecksum(remoteBase, remoteBin) {
   return true;
 }
 
-function downloadText(url) {
-  const escaped = url.replace(/"/g, '\\"');
+// Allowlist for remote update hosts (IMP-08): CM_UPDATE_BASE overrides must
+// resolve to localhost (tests) or raw.githubusercontent.com / api.github.com.
+function isAllowedUpdateUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  if (!["https:", "http:"].includes(u.protocol)) return false;
+  const host = u.hostname.toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  return ["raw.githubusercontent.com", "api.github.com"].includes(host);
+}
+
+async function downloadText(url) {
+  if (!isAllowedUpdateUrl(url)) throw new Error(`blocked host in update URL: ${url}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
   try {
-    return execSync(`curl -fsSL "${escaped}"`, {
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf-8",
-      maxBuffer: 8 * 1024 * 1024,
-    });
-  } catch {
-    return execSync(`wget -qO- "${escaped}"`, {
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf-8",
-      maxBuffer: 8 * 1024 * 1024,
-    });
+    const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 8 * 1024 * 1024) throw new Error("response too large");
+    return buf.toString("utf-8");
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-function resolveRemoteCommitSha() {
+async function resolveRemoteCommitSha() {
   try {
-    const response = downloadText(REPO_API_COMMIT);
+    const response = await downloadText(REPO_API_COMMIT);
     const parsed = JSON.parse(response);
     return typeof parsed?.sha === "string" ? parsed.sha : null;
   } catch {
@@ -96,12 +105,16 @@ function getInstalledSkillDirs() {
     join(process.env.HOME || "", ".claude", "skills", "cm"),
     join(process.env.HOME || "", ".codex", "skills", "cm"),
     join(process.env.HOME || "", ".cursor", "skills", "cm"),
+    join(process.env.HOME || "", ".gemini", "skills", "cm"),
+    join(process.env.HOME || "", ".qwen", "skills", "cm"),
+    join(process.env.HOME || "", ".config", "opencode", "skills", "cm"),
+    join(process.env.HOME || "", ".codeium", "windsurf", "skills", "cm"),
   ];
 }
 
-function runUpdate(force) {
-  const remoteBase = resolveUpdateBase();
-  const remoteBin = downloadText(`${remoteBase}/bin/cm`);
+async function runUpdate(force) {
+  const remoteBase = await resolveUpdateBase();
+  const remoteBin = await downloadText(`${remoteBase}/bin/cm`);
   const remoteVersion = extractRemoteVersion(remoteBin);
   if (!remoteVersion) {
     console.log("Could not determine remote version.");
@@ -124,16 +137,16 @@ function runUpdate(force) {
   }
   // Integrity gate: verify the remote bundle's SHA-256 against its published
   // manifest BEFORE any local file is replaced.
-  if (!verifyBundleChecksum(remoteBase, remoteBin)) {
+  if (!(await verifyBundleChecksum(remoteBase, remoteBin))) {
     process.exit(1);
   }
   writeFileSync(targetPath, remoteBin, "utf-8");
   try {
-    execSync(`chmod +x "${targetPath.replace(/"/g, '\\"')}"`, { stdio: "ignore" });
+    chmodSync(targetPath, 0o755);
   } catch {}
 
   try {
-    const remoteSkill = downloadText(`${remoteBase}/skill/SKILL.md`);
+    const remoteSkill = await downloadText(`${remoteBase}/skill/SKILL.md`);
     for (const dir of getInstalledSkillDirs()) {
       try {
         mkdirSync(dir, { recursive: true });

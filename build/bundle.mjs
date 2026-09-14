@@ -35,7 +35,7 @@ const ORDER = [
   "src/retrieval.js",
   "src/context.js",
   "src/memory-ops.js",
-  "src/graph-export.js",
+  "src/mcp.js",         // cm mcp stdio server  "src/graph-export.js",
   "src/entities.js",
   "src/main.js",      // main() + main().catch
 ];

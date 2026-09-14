@@ -132,6 +132,181 @@ function pruneMemories(d) {
   return rows.length;
 }
 
+function archiveMemoryRow(d, id) {
+  try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [id]); } catch {}
+  runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), id]);
+}
+
+function archiveAllProjectMemories(d) {
+  const rows = listMemoryRows(d, "WHERE mi.status <> 'archived'", [], "ORDER BY mi.updated_at ASC");
+  for (const row of rows) archiveMemoryRow(d, row.id);
+  return rows.length;
+}
+
+// Update the project snapshot memory ("Project snapshot: <name>", source=scan)
+// by re-scanning the repo. The previous snapshot row(s) are archived so exactly
+// one active snapshot remains; the fresh body is saved with force=true to
+// bypass fuzzy dedup (a changed body would otherwise create a stale duplicate).
+async function refreshSnapshotMemory(d, cwd) {
+  const s = await sc(cwd);
+  const stale = listMemoryRows(
+    d,
+    "WHERE mi.status <> 'archived' AND mi.source = 'scan' AND mi.title LIKE 'Project snapshot:%'",
+    [],
+    "ORDER BY mi.updated_at DESC"
+  );
+  const freshBody = s.me || "";
+  let updated = false;
+  if (freshBody) {
+    // Only archive old snapshot rows when the scan body actually changed, so
+    // an idempotent re-run keeps the original row (its timestamps and stats).
+    // Either way the surviving row is touched: the re-scan observed the repo
+    // just now, so the git-staleness baseline (last memory write) advances
+    // past HEAD — otherwise a later session_start would still report stale.
+    const changed = !stale.length || !stale.some((row) => row.body === freshBody);
+    if (!changed) {
+      for (const row of stale) runStmt(d, "UPDATE memory_items SET updated_at=? WHERE id=?", [nowIso(), row.id]);
+    }
+    if (changed) {
+      for (const row of stale) archiveMemoryRow(d, row.id);
+      saveMemory(d, cwd, {
+        force: true,
+        kind: "fact",
+        layer: "semantic",
+        title: `Project snapshot: ${basename(cwd)}`,
+        body: freshBody,
+        summary: summarize(freshBody),
+        source: "scan",
+        taskKind: "update",
+        tags: ["snapshot"],
+      });
+      updated = true;
+    }
+  }
+  // Graph is always refreshed (nodes/edges are upserted, so this is idempotent).
+  if (s.no.length) {
+    for (const n of s.no) upsertGraphNode(d, n);
+    for (const e of s.ed) upsertGraphEdge(d, e);
+  }
+  syncGraphProjection(d, cwd);
+  refreshProjections(d, cwd);
+  try { runStmt(d, "VACUUM"); } catch {}
+  return { updated, techs: s.ts.length, nodes: s.no.length };
+}
+
+// Noise cleanup: archive (a) near-duplicate clusters keeping the newest row of
+// each cluster, and (b) very low-confidence facts. Dry-run lists candidates.
+function cleanMemoryNoise(d, cwd, { dryRun = false } = {}) {
+  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at ASC");
+  const candidates = [];
+  // Near-duplicates: pairwise trigram cosine similarity over active rows.
+  const seen = new Set();
+  for (let i = 0; i < rows.length; i++) {
+    if (seen.has(rows[i].id)) continue;
+    const cluster = [];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (seen.has(rows[j].id)) continue;
+      const sim = cosineSimilarity(trigramEmbed(rows[i].body), trigramEmbed(rows[j].body));
+      if (rows[i].kind === rows[j].kind && sim > 0.65) {
+        cluster.push(rows[j].id);
+      }
+    }
+    // rows are ASC by updated_at, so the LAST row of the cluster (newest) is kept.
+    for (const id of cluster) { seen.add(id); candidates.push(id); }
+  }
+  // Low-confidence noise: active facts nobody confirmed with confidence < 0.3.
+  for (const row of rows) {
+    if (!candidates.includes(row.id) && row.confidence < 0.3) candidates.push(row.id);
+  }
+  if (!dryRun) {
+    for (const id of candidates) archiveMemoryRow(d, id);
+    refreshProjections(d, cwd);
+    try { runStmt(d, "VACUUM"); } catch {}
+  }
+  return candidates;
+}
+
+// Harness hook audit: detect compatible harnesses present in the project
+// (their marker/instructions file exists) whose cm hook is NOT installed, and
+// install it automatically. Returns the list of harnesses that were fixed.
+// Detection markers: claude=<installed always>, pi=AGENTS.md, codex=GEMINI.md,
+// copilot=.github/copilot-instructions.md, cursor=.cursorrules.
+function harnessHookInstalled(cwd, harness) {
+  if (harness === "pi") return existsSync(join(cwd, ".pi", "extensions", "code-mem.ts"));
+  if (harness === "opencode" || harness === "windsurf") return true; // covered by AGENTS.md/skill, no hook surface
+  const configs = {
+    claude: { path: join(cwd, ".claude", "settings.json"), marker: "cm hook --event" },
+    codex: { path: join(cwd, ".codex", "hooks.json"), marker: "cm hook --event" },
+    gemini: { path: join(cwd, ".gemini", "settings.json"), marker: "cm hook --event" },
+    qwen: { path: join(cwd, ".qwen", "settings.json"), marker: "cm hook --event" },
+    copilot: { path: join(cwd, ".github", "hooks", "code-mem.json"), marker: "cm hook --event" },
+    cursor: { path: join(cwd, ".cursor", "hooks.json"), marker: "cm hook --event" },
+  };
+  const cfg = configs[harness];
+  if (!cfg) return true;
+  if (!existsSync(cfg.path)) return false;
+  try { return readFileSync(cfg.path, "utf-8").includes(cfg.marker); } catch { return false; }
+}
+
+function auditHarnessHooks(cwd) {
+  const markers = {
+    pi: "AGENTS.md",
+    codex: "GEMINI.md",
+    gemini: "GEMINI.md",
+    qwen: "QWEN.md",
+    opencode: "AGENTS.md",
+    copilot: ".github/copilot-instructions.md",
+    cursor: ".cursorrules",
+    windsurf: ".windsurf/rules/cm.md",
+  };
+  const fixed = [];
+  for (const [harness, markerFile] of Object.entries(markers)) {
+    if (!existsSync(join(cwd, markerFile))) continue;      // harness not used here
+    if (harnessHookInstalled(cwd, harness)) continue;      // hook already there
+    installHooks(cwd, harness);
+    if (harnessHookInstalled(cwd, harness)) fixed.push(harness);
+  }
+  return fixed;
+}
+
+// Last git commit timestamp (ISO) or "" when not a git repo / no commits.
+function getGitLastCommitAt(cwd) {
+  try {
+    return execSync("git log -1 --format=%cI", {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf-8",
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+// Timestamp of the most recent project memory write, or "" when empty.
+function getLastMemoryWriteAt(d) {
+  try {
+    const row = getStmt(d, "SELECT MAX(updated_at) AS t FROM memory_items WHERE status <> 'archived'");
+    return (row && row.t) || "";
+  } catch {
+    return "";
+  }
+}
+
+// Git-driven staleness sync for session_start: when the latest commit is
+// newer than the last memory write, the repo evolved without any memory
+// update (e.g. a harness whose hook was never installed), so refresh the
+// snapshot automatically and warn the user. Returns true when refreshed.
+async function refreshIfGitStale(d, cwd) {
+  const commitAt = getGitLastCommitAt(cwd);
+  if (!commitAt) return false;
+  const lastWrite = getLastMemoryWriteAt(d);
+  if (lastWrite && new Date(commitAt) <= new Date(lastWrite)) return false;
+  const res = await refreshSnapshotMemory(d, cwd);
+  console.log(`> Project memory is stale (last commit ${commitAt} > last memory write ${lastWrite || "never"}).`);
+  console.log(`> Memory auto-refreshed (snapshot ${res.updated ? "updated" : "unchanged"}, ${res.techs} technologies, ${res.nodes} nodes).`);
+  return true;
+}
+
 function isProcessAlive(pid) {
   const p = Number.parseInt(pid, 10);
   if (!Number.isInteger(p) || p <= 0) return false; // malformed pid → treat as stale

@@ -167,13 +167,16 @@ Notes:
 
 ### `cm update`
 
-Check the GitHub version of `cm`, download the latest CLI, replace the current executable, and refresh installed skill files.
+Check the GitHub version of `cm`, download the latest CLI, replace the current executable, and refresh installed skill files. Downloads use `fetch` over HTTPS with a host allowlist (`raw.githubusercontent.com`, `api.github.com`, localhost for `CM_UPDATE_BASE` test mirrors).
 
 Usage:
 
 ```bash
 cm update
 cm update --force
+cm update --memory                  # re-scan repo: refresh snapshot + graph (+ auto-install missing harness hooks)
+cm update --memory --clean [--dry-run]  # archive near-duplicates + low-confidence noise
+cm update --memory --reset         # archive ALL project memories and re-scan fresh
 ```
 
 Notes:
@@ -182,6 +185,23 @@ Notes:
 - **Integrity gate:** before any local file is replaced, the downloaded bundle's SHA-256 digest is verified against the published remote manifest (`bin/cm.sha256`). On mismatch the update aborts and nothing is written; an older mirror without a manifest only triggers a warning. The download base can be overridden with the `CM_UPDATE_BASE` environment variable (used by the integrity tests to exercise the gate against a local mirror).
 - `--force` reinstalls even if the versions match.
 - The command updates the current executable path and rewrites harness skill files when possible.
+
+### `cm mcp`
+
+Stdio JSON-RPC MCP server exposing project memory to any MCP-compatible harness (no shell-out needed). Tools: `memory_search` (ranked titles + summaries + scores), `memory_timeline` (recent rows, optional kind filter), `memory_get` (full row by id). Reuses the `recallMemories` pipeline, so ranking matches `cm recall --level 2 --mode hybrid`.
+
+Usage:
+
+```bash
+cm mcp                       # speak JSON-RPC 2.0 on stdio
+```
+
+Harness wiring examples:
+
+```json
+// opencode.json — {"mcp": {"cm": {"type": "local", "command": ["cm", "mcp"]}}}
+// claude / gemini / qwen / cursor / copilot — same shape in their MCP config
+```
 
 ### `cm version`
 
@@ -672,9 +692,11 @@ Show a timeline of memory evolution plus a digest (by kind, by month, top entiti
 Usage:
 
 ```bash
-cm history [--kind k] [--entity e] [--limit n]
+cm history [--kind k] [--entity e] [--limit n] [--msgs]
 cm digest [--kind k] [--entity e] [--limit n]
 ```
+
+- `--msgs` also shows the latest 15 captured conversation rows under the digest.
 
 Examples:
 
@@ -749,6 +771,14 @@ No external model is required for retrieval. If Ollama is present, it is preferr
 - `MEMORY.md` and `USER.md` are generated; direct edits may be overwritten by `cm project` or `cm consolidate`.
 - Legacy commands still work for compatibility.
 - `graph.json` remains intentionally simple and separate from the SQLite memory tables.
+- `cm scan --deep` installs the optional `acorn` AST parser into `~/.cm/deps` on first use (announced, one-time `npm install`); offline it falls back to the regex parser transparently (pass `--no-ast` to force regex).
+- No HTTP API, web viewer, or TUI by design (zero-server): `cm history --msgs` covers inspection, `cm mcp` covers agent integration.
+
+## Threat model (local-first)
+
+- `state.db` and `memory/` are plaintext on your disk; committing `memory/` to a shared repo exposes decisions and captured conversation rows. Do not save secrets, tokens, or personal data (`cm save` never redacts).
+- `cm update` downloads over HTTPS with a host allowlist (`raw.githubusercontent.com`, `api.github.com`; localhost only via `CM_UPDATE_BASE` mirrors) and verifies SHA-256 against `bin/cm.sha256` before installing.
+- The only network surfaces are `cm update` and the optional Ollama embedding endpoint on localhost; everything else is local SQLite.
 
 ## License
 

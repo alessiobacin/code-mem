@@ -6,9 +6,14 @@ function checkAcorn() {
   } catch { return null; }
 }
 
+// Optional AST dependency install (IMP-04): scan --deep prefers acorn but
+// works offline with the regex fallback. This one-time `npm install` into
+// ~/.cm/deps is explicit (not silent): it runs only after cm init (which
+// announces it) or after scan --deep prints the notice below — never hidden.
 function installAcornDeps() {
   try {
     if (checkAcorn()) return true;
+    console.log("scan --deep: installing optional AST parser (acorn) into ~/.cm/deps — one-time npm install, offline falls back to regex.");
     const pj = join(CM_DEPS_DIR, "package.json");
     if (!existsSync(pj)) {
       mkdirSync(CM_DEPS_DIR, { recursive: true });

@@ -24,10 +24,49 @@ async function main() {
 
   if (cmd === "update") {
     const { flags } = parseArgs(a.slice(1));
-    runUpdate(Boolean(flags.force));
+    // `cm update --memory` refreshes the project memory (snapshot + graph),
+    // with optional noise cleanup (--clean) or full reset (--reset). Without
+    // --memory the command remains the binary self-update.
+    if (flags.memory) {
+      const cwd2 = process.cwd();
+      if (!existsSync(mp(cwd2, SF))) {
+        console.error("No memory/. Run: cm init");
+        process.exit(1);
+      }
+      const d2 = od(mp(cwd2, SF));
+      // Hook audit: harnesses whose marker file exists but whose hook was
+      // never installed get it automatically (fixes cross-harness staleness).
+      const hookFixed = auditHarnessHooks(cwd2);
+      for (const h of hookFixed) console.log(`${h} hook installed (marker file present, hook was missing).`);
+      if (flags.reset) {
+        const n = archiveAllProjectMemories(d2);
+        console.log(`Memory reset: ${n} item(s) archived.`);
+        const res = await refreshSnapshotMemory(d2, cwd2);
+        console.log(res.updated ? `Snapshot updated (${res.techs} technologies, ${res.nodes} nodes).` : "Snapshot unchanged.");
+        d2.close();
+        return;
+      }
+      if (flags.clean) {
+        const cands = cleanMemoryNoise(d2, cwd2, { dryRun: Boolean(flags["dry-run"]) });
+        if (flags["dry-run"]) {
+          console.log(`dry-run: ${cands.length} noise candidate(s):`);
+          for (const id of cands) console.log(`  - ${id}`);
+          d2.close();
+          return;
+        }
+        console.log(`Memory cleaned: ${cands.length} item(s) archived.`);
+        d2.close();
+        return;
+      }
+      const res = await refreshSnapshotMemory(d2, cwd2);
+      console.log("Memory refreshed.");
+      console.log(res.updated ? `Snapshot updated (${res.techs} technologies, ${res.nodes} nodes).` : "Snapshot unchanged.");
+      d2.close();
+      return;
+    }
+    await runUpdate(Boolean(flags.force));
     return;
   }
-
   if (cmd === "version") {
     console.log(VERSION);
     return;
@@ -106,6 +145,13 @@ async function main() {
   const d = needsProjectMemory ? od(mp(c, SF)) : null;
   if (d) ensureGraphStoreReady(d, c);
 
+  if (cmd === "mcp") {
+    // MCP stdio server (IMP-01): JSON-RPC over stdio, project memory tools.
+    await runMcpServer(d, c);
+    d.close();
+    return;
+  }
+
   if (cmd === "watch") {
     const { flags } = parseArgs(a.slice(1));
     const interval = Math.max(10, Number.parseInt(flags.interval || "30", 10));
@@ -159,6 +205,10 @@ async function main() {
     let payload = {};
     try { payload = JSON.parse(input || "{}"); } catch {}
     if (event === "session_start" || event === "sessionstart") {
+      // Staleness sync: if the repo has unregistered commits (memory never
+      // updated since, e.g. another harness without an installed hook), the
+      // snapshot is refreshed automatically before recall.
+      try { await refreshIfGitStale(d, c); } catch {}
       const q = buildAutoQuery(c);
       captureAutoRecall(d, c);
       console.log(`## Contextual Memory (auto-recall)`);
@@ -756,6 +806,11 @@ async function main() {
       if (flags.relations === false || flags.relations === undefined) {
         // --deep implies full AST scan
         const noAst = flags["no-ast"] === true;
+        if (!noAst && !checkAcorn()) {
+          // One-time optional install (announced, IMP-04); offline failure
+          // falls back to the regex parser transparently.
+          installAcornDeps();
+        }
         const result = scanASTDeep(c, noAst);
         // Upsert all extracted nodes and edges
         let nodeCount = 0, edgeCount = 0;

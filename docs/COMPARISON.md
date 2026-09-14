@@ -26,7 +26,7 @@ claude-mem is an MCP server offering persistent, cross-project memory with seman
 | **Where it lives** | `memory/state.db` + optional `~/.cm/state.db` | Remote API (cloud MCP) |
 | **Search** | Local FTS5 + optional semantic embedding (Ollama) | Semantic search via remote MCP API |
 | **Dependencies** | Zero (Node 22+ built-in) | npm + MCP plugin + remote server |
-| **Agent support** | Claude, Codex, Cursor, Pi, CLI | Claude Code only (MCP-based) |
+| **Agent support** | Claude, Codex, Cursor, Pi, Gemini, Qwen, Opencode, Windsurf, Copilot, CLI (+ MCP server) | Claude Code only (MCP-based) |
 | **Cost** | Zero | API calls to remote server |
 | **Offline** | Fully offline | Requires connection |
 | **Privacy** | Data never leaves the machine | Data passes through remote server |
@@ -240,7 +240,7 @@ Zep is a persistent memory platform for AI assistants, with entity analysis, sum
 - **Lightweight** — one Node.js file, one SQLite file
 - **Fully offline**
 - **Typed memory** — not just "text", but fact, decision, procedure, issue
-- **Immediate integration** — skill install works in 5 different harnesses without modifications
+- **Immediate integration** — skill install works in 9 different harnesses without modifications
 
 ### code-mem disadvantages
 

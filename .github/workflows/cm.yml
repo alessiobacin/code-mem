@@ -1,0 +1,27 @@
+name: cm
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node build/bundle.mjs
+      - run: node --test tests/non-regression/cm-cli.test.mjs
+      - run: bash tests/test-e2e.sh
+      - run: bash tests/tddb/run-all.sh
+      - name: bundle byte-identical check
+        run: |
+          cp bin/cm /tmp/cm-before
+          node build/bundle.mjs
+          cmp bin/cm /tmp/cm-before && echo "bundle deterministic: OK"

@@ -12,13 +12,14 @@ const {
   writeSync,
   unlinkSync,
   realpathSync,
+  chmodSync,
 } = require("fs");
 const { join, resolve, basename, dirname } = require("path");
-const { execSync, spawnSync, spawn } = require("child_process");
+const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -62,6 +63,10 @@ const HARNESS_CONFIGS = {
   codex: { file: "GEMINI.md" },
   copilot: { file: ".github/copilot-instructions.md" },
   cursor: { file: ".cursorrules" },
+  gemini: { file: "GEMINI.md" },
+  qwen: { file: "QWEN.md" },
+  opencode: { file: "AGENTS.md" },
+  windsurf: { file: ".windsurf/rules/cm.md" },
 };
 const TASK_TEMPLATES = {
   debug: {

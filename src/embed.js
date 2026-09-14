@@ -1,14 +1,18 @@
+// Sync Ollama probe without a shell: execFileSync passes argv directly, so
+// OLLAMA_BASE can never be interpolated into a shell command (IMP-08).
 function checkOllama() {
   try {
-    const res = execSync(
-      `curl -s -o /dev/null -w "%{http_code}" ${OLLAMA_BASE}/api/tags 2>/dev/null || echo "fail"`,
+    const status = execFileSync(
+      "curl",
+      ["-s", "-o", "/dev/null", "-w", "%{http_code}", `${OLLAMA_BASE}/api/tags`],
       { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, encoding: "utf-8" }
     ).trim();
-    if (res !== "200") return false;
-    const list = execSync(
-      `curl -s ${OLLAMA_BASE}/api/tags 2>/dev/null || echo "{}"`,
-      { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, encoding: "utf-8" }
-    ).trim();
+    if (status !== "200") return false;
+    const list = execFileSync("curl", ["-s", `${OLLAMA_BASE}/api/tags`], {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 3000,
+      encoding: "utf-8",
+    }).trim();
     return list.includes(EMBED_MODEL);
   } catch { return false; }
 }

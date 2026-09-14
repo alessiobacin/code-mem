@@ -43,6 +43,7 @@ Public help is deliberately **lean**. Run `cm help --full` (or `cm --full`) to s
 - `cm stats` - active memories, conserved recalls, estimated time saved, value metric
 - `cm export` / `cm import <bundle.json>` - deterministic JSON bundle export + idempotent merge (last-write-wins by updated_at)
 - `cm sq "query"` - full-text search recorded messages
+- `cm mcp` - stdio MCP server (`memory_search` / `memory_timeline` / `memory_get`) for MCP-compatible harnesses
 - `cm recent` - list recent memories
 - `cm consolidate` - promote and normalize memories
 - `cm project` - regenerate `MEMORY.md` and `USER.md`
