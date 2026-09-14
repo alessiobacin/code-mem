@@ -68,6 +68,9 @@ function od(p) {
   `);
   ensureGraphTables(d);
   ensureMessagesSearchTables(d);
+  try {
+    d.exec(`CREATE TABLE IF NOT EXISTS cm_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+  } catch {}
   ensureMigrationColumns(d);
   ensureRecallIndexes(d);
   return d;

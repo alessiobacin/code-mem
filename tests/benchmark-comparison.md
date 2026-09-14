@@ -27,3 +27,14 @@ Protocol: throwaway project, isolated HOME, 20 sequential `cm save --kind fact`,
 | Accuracy top-3 (paraphrase) | 100% (10/10) |
 
 Notes: per-op cost is dominated by Node process startup + SQLite open, not by scoring. MCP `memory_search` reuses the same `recallMemories` pipeline, so recall figures apply to the MCP path as well (minus one process spawn, persistent server).
+
+## Ollama vs trigram (2026-09-14, IMP-05 `requires_human_decision` evidence)
+
+Setup: 2 facts, Ollama `nomic-embed-text` available, query "quantized embedding storage" (paraphrase, zero keyword overlap with the target "The vector store uses sqlite with int8 quantization").
+
+| Mode | Top-1 | Note |
+|---|---|---|
+| semantic (Ollama) | correct (sem=0.268 vs 0.026) | synonym bridge works |
+| keyword | tie (0.37/0.37) | no lexical overlap, order arbitrary |
+
+Conclusion: trigram is the deterministic recall guarantee (always available, zero network); Ollama adds genuine synonym-level semantics when present. Keeping the current hybrid (trigram always + Ollama upgrade when reachable) is the right call — no embedding investment needed beyond what exists.

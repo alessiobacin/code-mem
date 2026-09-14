@@ -191,6 +191,8 @@ async function refreshSnapshotMemory(d, cwd) {
   syncGraphProjection(d, cwd);
   refreshProjections(d, cwd);
   try { runStmt(d, "VACUUM"); } catch {}
+  const head = getGitHead(cwd);
+  if (head) setMeta(d, "git_head", head);
   return { updated, techs: s.ts.length, nodes: s.no.length };
 }
 
@@ -269,10 +271,12 @@ function auditHarnessHooks(cwd) {
   return fixed;
 }
 
-// Last git commit timestamp (ISO) or "" when not a git repo / no commits.
-function getGitLastCommitAt(cwd) {
+// Last git commit SHA (full) or "" when not a git repo / no commits.
+// Compared by identity, not by timestamp: second-precision git dates race
+// with millisecond memory writes when everything happens within one second.
+function getGitHead(cwd) {
   try {
-    return execSync("git log -1 --format=%cI", {
+    return execSync("git rev-parse HEAD", {
       cwd,
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf-8",
@@ -282,27 +286,34 @@ function getGitLastCommitAt(cwd) {
   }
 }
 
-// Timestamp of the most recent project memory write, or "" when empty.
-function getLastMemoryWriteAt(d) {
+function getMeta(d, key) {
   try {
-    const row = getStmt(d, "SELECT MAX(updated_at) AS t FROM memory_items WHERE status <> 'archived'");
-    return (row && row.t) || "";
+    const row = getStmt(d, "SELECT value FROM cm_meta WHERE key = ?", [key]);
+    return (row && row.value) || "";
   } catch {
     return "";
   }
 }
 
-// Git-driven staleness sync for session_start: when the latest commit is
-// newer than the last memory write, the repo evolved without any memory
-// update (e.g. a harness whose hook was never installed), so refresh the
-// snapshot automatically and warn the user. Returns true when refreshed.
+function setMeta(d, key, value) {
+  try {
+    runStmt(d, "INSERT OR REPLACE INTO cm_meta(key,value) VALUES(?,?)", [key, value]);
+  } catch {}
+}
+
+// Git-driven staleness sync for session_start: when HEAD moved past the last
+// recorded commit, the repo evolved without any memory update (e.g. a harness
+// whose hook was never installed), so refresh the snapshot automatically and
+// warn the user. Returns true when refreshed.
 async function refreshIfGitStale(d, cwd) {
-  const commitAt = getGitLastCommitAt(cwd);
-  if (!commitAt) return false;
-  const lastWrite = getLastMemoryWriteAt(d);
-  if (lastWrite && new Date(commitAt) <= new Date(lastWrite)) return false;
+  const head = getGitHead(cwd);
+  if (!head) return false;
+  const recorded = getMeta(d, "git_head");
+  if (recorded === head) return false;
   const res = await refreshSnapshotMemory(d, cwd);
-  console.log(`> Project memory is stale (last commit ${commitAt} > last memory write ${lastWrite || "never"}).`);
+  setMeta(d, "git_head", head);
+  if (!recorded) return false; // first observation: establish baseline silently
+  console.log(`> Project memory is stale (HEAD moved ${recorded.slice(0, 8)}..${head.slice(0, 8)} since last memory refresh).`);
   console.log(`> Memory auto-refreshed (snapshot ${res.updated ? "updated" : "unchanged"}, ${res.techs} technologies, ${res.nodes} nodes).`);
   return true;
 }

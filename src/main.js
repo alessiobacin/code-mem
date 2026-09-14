@@ -104,6 +104,7 @@ async function main() {
     syncGraphProjection(nd, c);
     refreshProjections(nd, c);
     try { runStmt(nd, "VACUUM"); } catch {}
+    try { const h = getGitHead(c); if (h) setMeta(nd, "git_head", h); } catch {}
     nd.close();
     // Install optional AST parser deps (non-blocking, best-effort)
     try { installAcornDeps(); } catch {}

@@ -57,4 +57,11 @@ writeFileSync(out, banner + "\n" + body + "\n", "utf-8");
 chmodSync(out, 0o755);
 console.log(`Bundle written: ${out} (${orderSize(body)} bytes, ${ORDER.length} fragments)`);
 
+// Publish the SHA-256 manifest consumed by `cm update`'s integrity gate
+// (update.js fetches bin/cm.sha256 next to bin/cm).
+import { createHash } from "node:crypto";
+const digest = createHash("sha256").update(readFileSync(out)).digest("hex");
+writeFileSync(join(root, "bin", "cm.sha256"), `${digest}  cm\n`, "utf-8");
+console.log(`Checksum manifest: bin/cm.sha256 (${digest.slice(0, 12)}…)`);
+
 function orderSize(b) { return Buffer.byteLength(b); }
