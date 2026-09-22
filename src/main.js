@@ -35,6 +35,9 @@ async function main() {
         process.exit(1);
       }
       const d2 = od(mp(cwd2, SF));
+      // Every successful memory update (re)registers the project in the
+      // global catalog, so managed repos are never invisible to cm projects.
+      try { registerGraphProject(cwd2); } catch {}
       if (flags.deep) {
         try {
           await runDeepProjectUpdate(d2, cwd2, { noLlm: Boolean(flags["no-llm"]), noAst: Boolean(flags["no-ast"]) });

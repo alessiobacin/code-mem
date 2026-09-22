@@ -405,6 +405,23 @@ describe("cm update --memory", () => {
     assert.match(r.output, /No memory\/\. Run: cm init/);
   });
 
+  test("`cm update --memory` registers the project in the global catalog", () => {
+    const p = makeProject("catalog-reg");
+    // Unregister first: plain init registers, so remove the entry to prove
+    // that update --memory itself (re)registers.
+    initProject(p);
+    const regPath = join(p.home, ".cm", "graphd", "projects.json");
+    const reg = JSON.parse(readFileSync(regPath, "utf8"));
+    assert.ok(Object.keys(reg.projects || {}).length >= 1, "init must register the project");
+    for (const k of Object.keys(reg.projects)) delete reg.projects[k];
+    writeFileSync(regPath, JSON.stringify(reg, null, 2));
+    const r = p.run(["update", "--memory"]);
+    assert.equal(r.code, 0, `update --memory failed: ${r.output}`);
+    const after = JSON.parse(readFileSync(regPath, "utf8"));
+    const roots = Object.values(after.projects || {}).map((x) => x.root);
+    assert.ok(roots.some((root) => realpathSync(p.dir) === root), "update --memory must register the project root");
+  });
+
   test("`cm update --memory` is idempotent when nothing changed (same scan body -> refresh, no duplicate)", () => {
     const p = makeProject();
     initProject(p);
