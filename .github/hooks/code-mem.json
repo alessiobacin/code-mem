@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "if [ -d memory ]; then cm hook --event session_start; fi"
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "if [ -d memory ]; then cm hook --event prompt; fi"
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "if [ -d memory ]; then cm hook --event response; fi"
+      }
+    ]
+  },
+  "version": 1
+}
