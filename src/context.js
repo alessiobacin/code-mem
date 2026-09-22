@@ -254,22 +254,23 @@ description: Persistent project memory via \`cm\` CLI, with optional global memo
 Local, persistent memory for a repository. Start substantial work by recalling
 the relevant context; save only durable, evidence-backed outcomes.
 
-## Initialize
+## Initialize and update
 
 \`\`\`bash
-cm init            # default init with auto-scan
+cm init --deep                    # detect harnesses, index everything, build graph + 3D HTML
+cm update --memory --deep         # repeat after repository changes
 cm init pi         # init + project-local Pi skill and non-blocking hook
 cm init claude     # init + Claude instructions/hooks
 cm init codex      # init + Codex instructions/hooks
 cm init copilot    # init + generate .github/copilot-instructions.md
-cm init cursor     # init + generate .cursorrules
+cm init cursor     # explicit legacy-compatible Cursor integration
 \`\`\`
 
 ## Core commands
 
 - \`cm version\`
 - \`cm save --kind decision "Use Vitest for unit tests"\`
-- \`cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"\`
+- \`cm save --kind procedure --global "Deploy with Docker from the repository .env file"\`
 - \`cm recall "fix flaky tests" --level 2 --mode hybrid\` — retrieve prior evidence
 - \`cm recall-auto\` — auto-recall based on git context (used by SessionStart hook)
 - \`cm watch [--interval 30] [--daemon]\` — continuous embedding + consolidation daemon

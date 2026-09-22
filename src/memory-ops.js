@@ -35,16 +35,31 @@ function replaceMemory(d, cwd, match, nextText, kindFilter) {
     process.exit(1);
   }
   const row = matches[0];
-  // A replace is a correction: the referenced memory is marked corrected.
-  runStmt(
-    d,
-    "UPDATE memory_items SET body=?, title=?, summary=?, status='corrected', corrected_by=?, updated_at=? WHERE id=?",
-    [nextText, projectTitle(nextText), summarize(nextText), inferAgent(), nowIso(), row.id]
-  );
-  const updated = loadMemoryRow(d, row.id);
-  updateFtsRow(d, updated);
+  // Corrections are successors: preserve the old claim and close its current
+  // validity window instead of overwriting the only evidence-bearing row.
+  const successor = saveMemory(d, cwd, {
+    force: true,
+    kind: row.kind,
+    layer: row.layer,
+    title: projectTitle(nextText),
+    body: nextText,
+    summary: summarize(nextText),
+    confidence: row.confidence,
+    salience: row.salience,
+    importance: row.importance ?? row.salience,
+    source: "replace",
+    sourceType: "manual",
+    scopeKey: row.scope_key || scopeKeyFor(cwd),
+    taskKind: row.task_kind || "correction",
+    files: filesForRow(row),
+    tags: tagsForRow(row),
+    observedAt: nowIso(),
+    validFrom: nowIso(),
+    supersedesId: row.id,
+  });
+  if (successor?.id && successor.id !== row.id) applyExplicitSupersession(d, row.id, successor.id, null, "supersedes");
   refreshProjections(d, cwd);
-  console.log(`Replaced ${row.id}.`);
+  console.log(`Replaced ${row.id} with ${successor?.id || "successor"}.`);
 }
 
 function removeMemory(d, cwd, match, kindFilter) {
@@ -70,51 +85,80 @@ function removeMemory(d, cwd, match, kindFilter) {
   }
   const row = matches[0];
   // Remove from FTS index and archive
-  try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [row.id]); } catch {}
-  runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), row.id]);
+  removeMemoryFtsRow(d, row.id);
+  runStmt(d, "UPDATE memory_items SET status='archived', belief_status='archived', invalidated_at=?, updated_at=? WHERE id=?", [nowIso(), nowIso(), row.id]);
   refreshProjections(d, cwd);
   console.log(`Removed ${row.id}.`);
 }
 
-async function consolidateMemories(d, cwd) {
-  const rows = listMemoryRows(
-    d,
-    "WHERE mi.status='active' AND mi.layer IN ('working','episodic')",
-    [],
-    "ORDER BY mi.updated_at DESC"
-  );
-  let promoted = 0;
-  for (const row of rows) {
-    let nextLayer = row.layer;
-    let nextKind = row.kind;
-    if (row.kind === "fact" || row.kind === "artifact" || row.kind === "issue") nextLayer = "semantic";
-    if (row.kind === "procedure") nextLayer = "procedural";
-    if (row.kind === "decision") nextLayer = "semantic";
-    if (row.summary !== summarize(row.body) || row.layer !== nextLayer || row.kind !== nextKind) {
-      runStmt(
-        d,
-        "UPDATE memory_items SET summary=?, layer=?, kind=?, updated_at=? WHERE id=?",
-        [summarize(row.body), nextLayer, nextKind, nowIso(), row.id]
-      );
-      promoted += 1;
+async function consolidateMemories(d, cwd, options = {}) {
+  await waitForGraphRefresh(cwd);
+  const run = beginConsolidationRun(d, "sleep");
+  let processed = 0;
+  let updated = 0;
+  try {
+    // First consume the append-only intake stream. Candidate rows stay out of
+    // normal recall until explicitly accepted or independently verified.
+    const episodes = allStmt(d, "SELECT * FROM memory_episodes WHERE processing_state IN ('pending','candidate_pending') ORDER BY created_at ASC LIMIT 200");
+    for (const episode of episodes) {
+      processed += 1;
+      if (episode.gate_decision === "CREATE_CANDIDATE") {
+        const candidate = getStmt(d, "SELECT id FROM memory_items WHERE id=?", [`candidate_${episode.id}`]);
+        if (candidate && !getStmt(d, "SELECT id FROM verification_queue WHERE memory_id=? AND status='pending' LIMIT 1", [candidate.id])) {
+          queueVerification(d, { memoryId: candidate.id, episodeId: episode.id, reason: "intake_candidate_review", priority: 0.45 });
+        }
+        runStmt(d, "UPDATE memory_episodes SET processing_state='candidate_pending' WHERE id=?", [episode.id]);
+      } else {
+        runStmt(d, "UPDATE memory_episodes SET processing_state='processed' WHERE id=?", [episode.id]);
+      }
     }
-  }
-  // Vectorize new memories — prefer Ollama when available, fallback to trigram
-  const unembedded = listUnembeddedMemories(d);
-  const useOllama = checkOllama();
-  for (const row of unembedded) {
-    const text = `${row.title} ${row.body} ${row.summary || ""}`;
+
+    if (options.acceptCandidates) {
+      const candidates = listMemoryRows(d, "WHERE mi.status='candidate' AND mi.belief_status='candidate'", [], "ORDER BY mi.created_at ASC LIMIT 200");
+      for (const row of candidates) {
+        runStmt(d, "UPDATE memory_items SET status='active',belief_status='tentative',processing_state='accepted',confidence=MAX(confidence,0.65),updated_at=? WHERE id=?", [nowIso(), row.id]);
+        updateMemoryFtsRow(d, row.id);
+        updated += 1;
+      }
+    }
+
+    const rows = listMemoryRows(d, "WHERE mi.status='active' AND mi.layer IN ('working','episodic')", [], "ORDER BY mi.updated_at DESC");
+    for (const row of rows) {
+      let nextLayer = row.layer;
+      if (row.kind === "fact" || row.kind === "artifact" || row.kind === "issue" || row.kind === "decision") nextLayer = "semantic";
+      if (row.kind === "procedure") nextLayer = "procedural";
+      if (row.summary !== summarize(row.body) || row.layer !== nextLayer) {
+        runStmt(d, "UPDATE memory_items SET summary=?, layer=?, updated_at=?, processing_state='consolidated' WHERE id=?", [summarize(row.body), nextLayer, nowIso(), row.id]);
+        updateMemoryFtsRow(d, row.id);
+        updated += 1;
+      }
+    }
+    // Vectorize new memories — prefer Ollama when available, fallback to trigram.
+    const unembedded = listUnembeddedMemories(d);
+    const useOllama = checkOllama();
+    let upgraded = 0;
+    for (const row of unembedded) {
+      const text = `${row.title} ${row.body} ${row.summary || ""}`;
+      if (useOllama) await embedText(d, row.id, null, text).catch(() => saveTrigramVector(d, row.id, text));
+      else saveTrigramVector(d, row.id, text);
+    }
+    // Ollama upgrade: memories without a semantic vector (saved while
+    // Ollama was down) get one as soon as it is reachable. The trigram
+    // copy is never overwritten — dual-vector keeps both spaces.
     if (useOllama) {
-      await embedText(d, row.id, null, text).catch(() => saveTrigramVector(d, row.id, text));
-    } else {
-      saveTrigramVector(d, row.id, text);
+      const stale = allStmt(d, `SELECT mi.id, mi.title, mi.body, mi.summary FROM memory_items mi LEFT JOIN memory_ollama_vectors ov ON ov.memory_id = mi.id WHERE mi.status='active' AND ov.memory_id IS NULL ORDER BY mi.updated_at DESC LIMIT 200`);
+      for (const row of stale) {
+        try { await embedText(d, row.id, null, `${row.title} ${row.body} ${row.summary || ""}`); upgraded += 1; } catch {}
+      }
     }
+    const vecInfo = (unembedded.length || upgraded) ? `, ${unembedded.length} vectorized${useOllama ? " (ollama)" : ""}${upgraded ? `, ${upgraded} upgraded to ollama` : ""}` : "";
+    refreshProjections(d, cwd);
+    finishConsolidationRun(d, run, { processed, updated });
+    console.log(`Consolidated ${updated} item(s), processed ${processed} episode(s).${vecInfo}`);
+  } catch (e) {
+    finishConsolidationRun(d, run, { processed, updated }, e);
+    throw e;
   }
-  const vecInfo = unembedded.length ? `, ${unembedded.length} vectorized${useOllama ? " (ollama)" : ""}` : "";
-  refreshProjections(d, cwd);
-  // VACUUM to reclaim space after consolidation
-  try { runStmt(d, "VACUUM"); } catch {}
-  console.log(`Consolidated ${promoted} item(s).${vecInfo}`);
 }
 
 function pruneMemories(d) {
@@ -125,16 +169,16 @@ function pruneMemories(d) {
     "ORDER BY mi.updated_at ASC"
   );
   for (const row of rows) {
-    try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [row.id]); } catch {}
-    runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), row.id]);
+    removeMemoryFtsRow(d, row.id);
+    runStmt(d, "UPDATE memory_items SET status='archived',belief_status='archived',invalidated_at=?,updated_at=? WHERE id=?", [nowIso(), nowIso(), row.id]);
   }
   try { runStmt(d, "VACUUM"); } catch {}
   return rows.length;
 }
 
 function archiveMemoryRow(d, id) {
-  try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [id]); } catch {}
-  runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), id]);
+  removeMemoryFtsRow(d, id);
+  runStmt(d, "UPDATE memory_items SET status='archived',belief_status='archived',invalidated_at=?,updated_at=? WHERE id=?", [nowIso(), nowIso(), id]);
 }
 
 function archiveAllProjectMemories(d) {
@@ -199,7 +243,7 @@ async function refreshSnapshotMemory(d, cwd) {
 // Noise cleanup: archive (a) near-duplicate clusters keeping the newest row of
 // each cluster, and (b) very low-confidence facts. Dry-run lists candidates.
 function cleanMemoryNoise(d, cwd, { dryRun = false } = {}) {
-  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at ASC");
+  const rows = listMemoryRows(d, "WHERE mi.status='active'", [], "ORDER BY mi.updated_at DESC");
   const candidates = [];
   // Near-duplicates: pairwise trigram cosine similarity over active rows.
   const seen = new Set();
@@ -213,7 +257,7 @@ function cleanMemoryNoise(d, cwd, { dryRun = false } = {}) {
         cluster.push(rows[j].id);
       }
     }
-    // rows are ASC by updated_at, so the LAST row of the cluster (newest) is kept.
+    // rows are DESC by updated_at, so the first row is newest and stays.
     for (const id of cluster) { seen.add(id); candidates.push(id); }
   }
   // Low-confidence noise: active facts nobody confirmed with confidence < 0.3.
@@ -318,6 +362,66 @@ async function refreshIfGitStale(d, cwd) {
   return true;
 }
 
+function graphRefreshLockPath(cwd) {
+  return mp(cwd, ".graph-refresh.lock");
+}
+
+function releaseGraphRefreshLock(cwd) {
+  try { unlinkSync(graphRefreshLockPath(cwd)); } catch {}
+}
+
+function scheduleGraphRefresh(cwd) {
+  if (!existsSync(mp(cwd, SF))) return false;
+  const lockPath = graphRefreshLockPath(cwd);
+  try {
+    const fd = openSync(lockPath, "wx");
+    writeSync(fd, String(process.pid));
+    closeSync(fd);
+  } catch {
+    let recordedPid = "";
+    try { recordedPid = rd(lockPath).trim(); } catch {}
+    if (isProcessAlive(recordedPid)) return false;
+    try { unlinkSync(lockPath); } catch { return false; }
+    try {
+      const fd = openSync(lockPath, "wx");
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+    } catch { return false; }
+  }
+  try {
+    const args = [...process.execArgv, process.argv[1], "update", "--memory", "--deep", "--no-llm", "--hook-refresh"];
+    const child = spawn(process.execPath, args, {
+      cwd,
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, CM_HOOK_GRAPH_REFRESH: "1" },
+    });
+    // The lock must identify the refresh child, not the short-lived hook
+    // process that created it. Otherwise the next command sees a dead owner,
+    // removes the lock, and opens SQLite while the refresh is still writing.
+    if (child.pid) wr(lockPath, String(child.pid));
+    child.unref();
+    return true;
+  } catch {
+    releaseGraphRefreshLock(cwd);
+    return false;
+  }
+}
+
+async function waitForGraphRefresh(cwd, timeoutMs = 15_000) {
+  const started = Date.now();
+  const lockPath = graphRefreshLockPath(cwd);
+  while (existsSync(lockPath)) {
+    const pid = rd(lockPath).trim();
+    if (!isProcessAlive(pid)) {
+      releaseGraphRefreshLock(cwd);
+      break;
+    }
+    if (Date.now() - started >= timeoutMs) break;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+}
+
 function isProcessAlive(pid) {
   const p = Number.parseInt(pid, 10);
   if (!Number.isInteger(p) || p <= 0) return false; // malformed pid → treat as stale
@@ -360,6 +464,7 @@ function acquireLock(cwd) {
 
 function watchLoop(d, cwd, intervalSec, cleanup) {
   let running = true;
+  let consolidating = false;
   const handler = () => { running = false; cleanup(); process.exit(0); };
   process.on("SIGINT", handler);
   process.on("SIGTERM", handler);
@@ -369,8 +474,8 @@ function watchLoop(d, cwd, intervalSec, cleanup) {
       // Capture layer: daemon heartbeat leaves a trace in the messages log.
       captureDaemonHeartbeat(d, cwd, `unembedded=${listUnembeddedMemories(d).length} tick`);
       const unembedded = listUnembeddedMemories(d);
+      const useOllama = checkOllama();
       if (unembedded.length > 0) {
-        const useOllama = checkOllama();
         for (const row of unembedded) {
           const text = `${row.title} ${row.body} ${row.summary || ""}`;
           if (useOllama) {
@@ -380,8 +485,16 @@ function watchLoop(d, cwd, intervalSec, cleanup) {
           }
         }
         console.log(`[watch] vectorized ${unembedded.length} memory item(s)${useOllama ? " (ollama)" : " (trigram)"}`);
+      } else if (useOllama) {
+        // Opportunistic Ollama upgrade for rows lacking a semantic vector.
+        const stale = allStmt(d, `SELECT mi.id, mi.title, mi.body, mi.summary FROM memory_items mi LEFT JOIN memory_ollama_vectors ov ON ov.memory_id = mi.id WHERE mi.status='active' AND ov.memory_id IS NULL ORDER BY mi.updated_at DESC LIMIT 20`);
+        for (const row of stale) embedText(d, row.id, null, `${row.title} ${row.body} ${row.summary || ""}`).catch(() => {});
+        if (stale.length) console.log(`[watch] upgraded ${stale.length} vector(s) to ollama`);
       }
-      consolidateMemories(d, cwd);
+      if (!consolidating) {
+        consolidating = true;
+        consolidateMemories(d, cwd).catch((e) => console.error(`[watch] Consolidation error: ${e.message}`)).finally(() => { consolidating = false; });
+      }
     } catch (e) {
       console.error(`[watch] Error: ${e.message}`);
     }

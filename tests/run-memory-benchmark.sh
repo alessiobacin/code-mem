@@ -578,7 +578,7 @@ BENCH_DATE=$(date '+%Y-%m-%d %H:%M:%S')
 cat > "$COMPARISON_MD" << END
 # Memory Benchmark: cm vs graphify
 
-Risultati dei benchmark eseguiti il $BENCH_DATE.
+Benchmark results collected on $BENCH_DATE.
 
 END
 
@@ -656,7 +656,7 @@ REGOLE:
 5. Sii oggettivo: se un sistema è migliore in un ambito, dillo chiaramente
 6. Rispondi in italiano
 
-Formato atteso:
+Expected format:
 
 \`\`\`
 # Benchmark Opinion

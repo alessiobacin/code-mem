@@ -1,0 +1,119 @@
+{
+  "name": "cognitive-memory-architecture-v1",
+  "reference_time": "2025-04-02T12:00:00Z",
+  "memories": [
+    {
+      "id": "provider-2025-01",
+      "kind": "event",
+      "text": "On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+      "reference_time": "2025-01-10T12:00:00Z"
+    },
+    {
+      "id": "provider-2025-02",
+      "kind": "event",
+      "text": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+      "reference_time": "2025-02-03T12:00:00Z"
+    },
+    {
+      "id": "provider-current",
+      "kind": "decision",
+      "text": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+      "reference_time": "2025-04-01T12:00:00Z"
+    },
+    {
+      "id": "data-layer",
+      "kind": "architecture",
+      "text": "The repository uses PostgreSQL for durable state and Redis for cache.",
+      "reference_time": "2025-01-15T12:00:00Z"
+    },
+    {
+      "id": "authentication",
+      "kind": "architecture",
+      "text": "Authentication uses OIDC with short-lived access tokens; refresh tokens are stored encrypted.",
+      "reference_time": "2025-01-16T12:00:00Z"
+    },
+    {
+      "id": "stripe-retries",
+      "kind": "procedure",
+      "text": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+      "reference_time": "2025-01-20T12:00:00Z"
+    },
+    {
+      "id": "webhook-regression",
+      "kind": "issue",
+      "text": "A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+      "reference_time": "2025-03-11T12:00:00Z"
+    },
+    {
+      "id": "mobile-stack",
+      "kind": "architecture",
+      "text": "The mobile app is written in React Native and shares TypeScript types with the API.",
+      "reference_time": "2025-01-22T12:00:00Z"
+    },
+    {
+      "id": "search-queue",
+      "kind": "architecture",
+      "text": "The search index runs asynchronously through a Redis-backed queue.",
+      "reference_time": "2025-01-25T12:00:00Z"
+    },
+    {
+      "id": "retention",
+      "kind": "policy",
+      "text": "The data retention policy deletes raw conversation episodes after 90 days, while accepted memories remain until explicitly invalidated.",
+      "reference_time": "2025-02-01T12:00:00Z"
+    },
+    {
+      "id": "provider-2025-04",
+      "kind": "event",
+      "text": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+      "reference_time": "2025-04-01T12:00:00Z"
+    }
+  ],
+  "queries": [
+    {
+      "id": "current-provider",
+      "text": "What is the current production API provider?",
+      "expected": [["current production api provider", "openai"]]
+    },
+    {
+      "id": "previous-provider",
+      "text": "Which provider was used before the current one?",
+      "expected": [["previous provider", "anthropic"]]
+    },
+    {
+      "id": "webhook-retry",
+      "text": "How are Stripe webhook retries handled?",
+      "expected": [["stripe webhooks", "exponential backoff", "five attempts"]]
+    },
+    {
+      "id": "webhook-fix",
+      "text": "What fixed duplicate webhook deliveries?",
+      "expected": [["duplicate webhook", "idempotency keys"]]
+    },
+    {
+      "id": "data-layer",
+      "text": "Which database and cache technologies are used?",
+      "expected": [["postgresql", "redis", "durable state"]]
+    },
+    {
+      "id": "authentication",
+      "text": "How is authentication implemented?",
+      "expected": [["oidc", "short-lived access tokens", "encrypted"]]
+    },
+    {
+      "id": "search-queue",
+      "text": "How is search indexing queued?",
+      "expected": [["search index", "redis-backed queue"]]
+    },
+    {
+      "id": "retention",
+      "text": "What happens to raw conversations after 90 days?",
+      "expected": [["raw conversation episodes", "90 days", "deleted"]]
+    },
+    {
+      "id": "provider-change",
+      "text": "What changed on 2025-04-01?",
+      "expected": [["2025-04-01", "anthropic", "openai"]]
+    }
+  ]
+}

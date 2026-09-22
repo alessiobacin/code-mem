@@ -14,12 +14,12 @@ const {
   realpathSync,
   chmodSync,
 } = require("fs");
-const { join, resolve, basename, dirname } = require("path");
+const { join, resolve, basename, dirname, relative, normalize, extname, sep } = require("path");
 const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -60,7 +60,7 @@ const DEFAULT_LIMIT = 8;
 const HARNESS_CONFIGS = {
   claude: { file: "CLAUDE.md" },
   pi: { file: "AGENTS.md" },
-  codex: { file: "GEMINI.md" },
+  codex: { file: "AGENTS.md" },
   copilot: { file: ".github/copilot-instructions.md" },
   cursor: { file: ".cursorrules" },
   gemini: { file: "GEMINI.md" },
@@ -111,6 +111,20 @@ Persistent, local project memory. It is evidence, not a replacement for the
 repository: retrieve it before rediscovering prior decisions, and store only
 durable, verifiable learning.
 
+## One-command repository sync
+
+\`cm init --deep\` initializes memory, detects installed harnesses, installs
+their cm hooks and skill, indexes documents/source/assets, asks the harness'
+configured LLM for evidence-bound relations, and writes \`memory/graph-3d.html\`.
+After changes run \`cm update --memory --deep\`. The project-local \`/cm-update\`
+command invokes the same workflow.
+Harness response hooks schedule the same deterministic refresh in the background,
+so the 3D HTML stays current without blocking the conversation. One per-user
+\`cm-graphd\` service serves all registered projects on loopback; run
+\`cm service install\` once after installing cm, then \`cm serve\` opens the
+current project through it. Its chat appears only when this project has an
+available harness with an explicit provider.
+
 ## Start every substantial task
 
 \`\`\`bash
@@ -125,6 +139,8 @@ cm sq "<exact phrase from a prior session>" # search captured conversation
 - \`cm save --kind procedure --title "…" "repeatable steps"\`
 - \`cm save --kind issue --title "…" "symptom, cause, fix or next check"\`
 - \`cm save --global …\` only for knowledge valid across projects.
+- \`cm save --global --kind preference --layer user …\` for a general user preference; it appears as context, never as a project stack override.
+- \`cm projects\` lists all managed projects. Use \`cm projects recall <selector> …\` or \`cm projects graph <selector>\` only when the user explicitly asks about another project.
 - \`cm save --auto --role agent "…"\` is capture data, not a substitute for a
   concise decision/issue memory.
 
@@ -168,7 +184,10 @@ export default function (pi: ExtensionAPI) {
   });
   pi.on("turn_end", async (event: any, ctx) => {
     const text = messageText(event?.message);
-    if (text.trim()) await runCm(["save", "--auto", "--role", "agent", text], ctx.cwd);
+    if (text.trim()) {
+      await runCm(["save", "--auto", "--role", "agent", text], ctx.cwd);
+      await runCm(["hook", "--event", "response"], ctx.cwd);
+    }
   });
 }`;
 
@@ -176,7 +195,7 @@ function harnessComment(harness) {
   const comments = {
     claude: "> Instructions for Claude Code — see cm skill for full reference",
     pi: "> Instructions for Pi CLI — see cm skill for full reference",
-    codex: "> Instructions for Google Codex — see cm skill for full reference",
+    codex: "> Instructions for Codex — see cm skill for full reference",
     copilot: "> Instructions for Copilot CLI — see cm skill for full reference",
     cursor: "> Instructions for Cursor — see cm skill for full reference",
   };

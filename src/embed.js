@@ -123,12 +123,31 @@ function embedText(d, id, model, text) {
   return computeEmbedding(text).then((vec) => {
     if (!vec) return;
     const buf = vectorToBuffer(vec);
+    const stamp = nowIso();
+    const name = model || EMBED_MODEL;
+    // Authoritative semantic copy: same-space scoring reads this table.
+    try {
+      runStmt(
+        d,
+        "INSERT OR REPLACE INTO memory_ollama_vectors(memory_id,vector,model,created_at) VALUES(?,?,?,?)",
+        [id, buf, name, stamp]
+      );
+    } catch {}
+    // Compat copy: legacy readers/tests that count Ollama rows in
+    // memory_vectors keep working. Scoring never mixes this with trigram.
     runStmt(
       d,
       "INSERT OR REPLACE INTO memory_vectors(memory_id,vector,model,created_at) VALUES(?,?,?,?)",
-      [id, buf, model || EMBED_MODEL, nowIso()]
+      [id, buf, name, stamp]
     );
   });
+}
+
+function getOllamaVector(d, id) {
+  try {
+    const row = getStmt(d, "SELECT vector FROM memory_ollama_vectors WHERE memory_id=?", [id]);
+    return row?.vector || null;
+  } catch { return null; }
 }
 
 function listUnembeddedMemories(d) {

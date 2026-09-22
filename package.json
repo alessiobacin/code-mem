@@ -1,9 +1,9 @@
 {
   "name": "code-mem",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
-  "description": "Progetto \"code-mem\", orchestrato con yano-orchestrator.",
+  "description": "Local-first persistent project memory for coding agents.",
   "scripts": {
     "build": "node build/bundle.mjs",
     "lint": "for f in src/*.js; do node --check \"$f\" || exit 1; done; echo LINT-OK",

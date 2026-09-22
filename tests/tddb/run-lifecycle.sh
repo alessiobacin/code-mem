@@ -33,18 +33,22 @@ DB="$WORK/memory/state.db"
 
 # --- Case A: contested (correzione contesta una memoria precedente) ---
 # SPEC: salvare una memoria che mette in dubbio la precedente (es. titolo/frase
-# che la nomina come "da verificare") porta la memoria originale a status 'contested'.
+# that marks it as requiring review) moves the original memory to status 'contested'.
 (cd "$WORK" && $CMD save --kind fact --title "dubbio postgres" "contested: usiamo postgres come db di default" >/dev/null 2>&1)
 S_C=$(status_of "$DB" "postgres come db di default")
 if [ "$S_C" = "contested" ]; then check "contested: la memoria nominata passa a status contested" "" PASS
 else check "contested: la memoria nominata passa a status contested (got=$S_C)" "" RED; fi
 
 # --- Case B: corrected (correzione sostituisce una memoria) ---
-# cm replace sostituisce testo: la memoria originaria DEV E diventare 'corrected'
+# cm replace crea un successore: la memoria originaria resta storicamente
+# presente come 'corrected', mentre il nuovo claim rimane active.
 (cd "$WORK" && $CMD replace "usiamo postgres come db di default" "usiamo sqlite come db di default" >/dev/null 2>&1)
-S_R=$(status_of "$DB" "usiamo sqlite come db di default")
+S_R=$(status_of "$DB" "usiamo postgres come db di default")
 if [ "$S_R" = "corrected" ]; then check "corrected: replace marca la memoria di riferimento corrected" "" PASS
 else check "corrected: replace marca la memoria di riferimento corrected (got=$S_R)" "" RED; fi
+S_R_NEW=$(status_of "$DB" "usiamo sqlite come db di default")
+if [ "$S_R_NEW" = "active" ]; then check "corrected: il successore resta active" "" PASS
+else check "corrected: il successore resta active (got=$S_R_NEW)" "" RED; fi
 
 # --- Case C: obsolete (correzione dichiara obsoleto un flusso) ---
 (cd "$WORK" && $CMD save --kind fact --title "flusso vecchio" "deploy manuale su ec2" >/dev/null 2>&1)

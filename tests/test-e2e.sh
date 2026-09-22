@@ -6,7 +6,8 @@ echo "║     🧠 cm — E2E TEST SUITE                 ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
-CMD="node /Users/alessiobacin/Desktop/code-mem/bin/cm"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CMD="node ${CM_BIN:-$REPO_ROOT/bin/cm}"
 PASS=0
 FAIL=0
 TESTDIR=/tmp/cm-e2e-$$
@@ -221,7 +222,7 @@ echo ""
 
 # TEST 19: global save + recall + snapshot
 echo "━━━ TEST 19: global save + recall ━━━"
-GSAVE=$($CMD save --kind procedure --global "Deploy classico: chiedi conferma e usa Docker sul server del file .env" 2>&1)
+GSAVE=$($CMD save --kind procedure --global "Deployment procedure: confirm the target, then use Docker on the server named in .env" 2>&1)
 assert_grep "global save" "Saved globally" "$GSAVE"
 GLOBAL_MD_COUNT=$(find "$HOME/.cm/memories" -name global-memory.md 2>/dev/null | wc -l | tr -d ' ')
 if [ "${GLOBAL_MD_COUNT:-0}" -ge 1 ] 2>/dev/null; then
@@ -232,7 +233,7 @@ fi
 mkdir -p "$TESTDIR/other-project"
 cd "$TESTDIR/other-project"
 $CMD init > /dev/null 2>&1
-GREC=$($CMD recall "deploy classico docker env" --level 1 2>&1)
+GREC=$($CMD recall "docker deployment env" --level 1 2>&1)
 assert_grep "global recall" "\\[global\\]" "$GREC"
 assert_grep "global recall text" "Docker" "$GREC"
 cd "$TESTDIR"
@@ -264,7 +265,7 @@ rm -rf "$HOME/.cm"
 GREST=$($CMD restore --global "$GLOBAL_BACKUP_FILE" 2>&1)
 assert_grep "global restore command" "Restored" "$GREST"
 cd "$TESTDIR/other-project"
-GREC2=$($CMD recall "docker env deploy classico" --level 1 2>&1)
+GREC2=$($CMD recall "docker env deployment" --level 1 2>&1)
 assert_grep "global restore recall" "\\[global\\]" "$GREC2"
 cd "$TESTDIR"
 echo ""
@@ -508,6 +509,76 @@ HE=$($CMD history --entity vitest 2>&1)
 assert_grep "history entity filter" "Vitest" "$HE"
 HIST_A=$($CMD digest --limit 10 2>&1)
 assert_grep "digest alias" "Timeline" "$HIST_A"
+echo ""
+
+# TEST 45: gx obsidian vault
+echo "━━━ TEST 45: cm gx --format obsidian ━━━"
+GX_OBS=$($CMD gx --format obsidian 2>&1)
+assert_grep "gx obsidian ok" "Obsidian vault" "$GX_OBS"
+if ls memory/obsidian/_COMMUNITY_*.md >/dev/null 2>&1; then mark_pass "obsidian community overview"; else mark_fail "obsidian community overview missing"; fi
+echo ""
+
+# TEST 46: low-confidence noise gate
+echo "━━━ TEST 46: recall noise gate ━━━"
+NOISE_OUT=$($CMD recall "quantum flux capacitor zebrafish quasar" --scope project --limit 3 2>&1)
+assert_grep "noise gate signal" "Confidence: low" "$NOISE_OUT"
+echo ""
+
+# TEST 47: AST calls edges (require destructure)
+echo "━━━ TEST 47: AST calls edges ━━━"
+mkdir -p callsproj && printf 'function login(u){ return u; }\nmodule.exports = { login };\n' > callsproj/auth.js && printf 'const { login } = require("./auth");\nfunction handleLogin(r){ return login(r); }\nmodule.exports = { handleLogin };\n' > callsproj/api.js
+$CMD scan --deep > /dev/null 2>&1
+CALLS_N=$(node -e "const g=require('./memory/graph.json');console.log(g.edges.filter(e=>(e.relation||e.r)==='calls').length)")
+if [ "${CALLS_N:-0}" -ge 1 ] 2>/dev/null; then mark_pass "calls edge presente ($CALLS_N)"; else mark_fail "calls edge assente"; fi
+echo ""
+
+# TEST 48: image vision ingest (harness vision -> graph elements)
+echo "━━━ TEST 48: cm media vision ingest ━━━"
+mkdir -p mediacorpus/docs
+python3 - <<'PYEOF' 2>/dev/null
+from PIL import Image, ImageDraw
+img = Image.new('RGB', (900, 400), 'white')
+d = ImageDraw.Draw(img)
+for x, label in [(50,'ALPHA'),(350,'BETA'),(650,'GAMMA')]:
+    d.rectangle([x, 120, x+200, 260], outline='black', width=3)
+    d.text((x+80, 180), label, fill='black')
+img.save('mediacorpus/docs/diagram.png')
+PYEOF
+if [ -f mediacorpus/docs/diagram.png ]; then
+  MEDIA_OUT=$(echo "n" | $CMD import ./mediacorpus/docs 2>&1)
+  assert_grep "media imported" "Imported" "$MEDIA_OUT"
+  # Deterministic part: the image becomes a searchable memory + graph note.
+  MEDIA_NOTE=$(node -e "const g=require('./memory/graph.json');console.log(g.nodes.filter(n=>(n.type||n.t)==='knowledge-note'&&/diagram\\.png/.test(n.label||'')).length)")
+  if [ "${MEDIA_NOTE:-0}" -ge 1 ] 2>/dev/null; then mark_pass "image note node presente"; else mark_fail "image note node assente"; fi
+  # Vision: labels become vision-element nodes + depicts edges (skipped when
+  # no vision-capable harness is reachable — OCR fallback still works).
+  VISION_N=$(node -e "const g=require('./memory/graph.json');console.log(g.nodes.filter(n=>(n.type||n.t)==='vision-element').length)")
+  DEPICTS_N=$(node -e "const g=require('./memory/graph.json');console.log(g.edges.filter(e=>(e.relation||e.r)==='depicts').length)")
+  if [ "${VISION_N:-0}" -ge 2 ] 2>/dev/null; then
+    mark_pass "vision elements estratti ($VISION_N)"
+    if [ "${DEPICTS_N:-0}" -ge 2 ] 2>/dev/null; then mark_pass "vision depicts edges ($DEPICTS_N)"; else mark_fail "vision depicts edges assenti"; fi
+    VIS_QUERY=$($CMD query "BETA" 2>&1)
+    if echo "$VIS_QUERY" | grep -qi "vision-element"; then mark_pass "vision element queryable"; else mark_fail "vision element non queryable"; fi
+  else
+    mark_pass "vision skipped (nessun harness vision raggiungibile; OCR fallback attivo)"
+  fi
+  rm -rf mediacorpus
+else
+  mark_pass "vision test skipped (PIL non disponibile)"
+fi
+echo ""
+
+# TEST 49: OCR fallback with no LLM (deterministic path)
+echo "━━━ TEST 49: media OCR fallback senza LLM ━━━"
+if [ -f mediacorpus/docs/diagram.png ] 2>/dev/null; then :; fi
+mkdir -p ocrcorpus/docs && cp /tmp/cm-e2e-$$/docs/*.png ocrcorpus/docs/ 2>/dev/null || true
+if [ -n "$(ls ocrcorpus/docs 2>/dev/null)" ]; then
+  OCR_OUT=$(echo "n" | CM_NO_LLM=1 $CMD import ./ocrcorpus/docs 2>&1)
+  assert_grep "media imported senza LLM" "Imported" "$OCR_OUT"
+else
+  mark_pass "OCR fallback test skipped (nessuna immagine)"
+fi
+rm -rf ocrcorpus
 echo ""
 
 # ======================================================

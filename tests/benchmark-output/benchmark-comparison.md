@@ -1,8 +1,8 @@
 # Memory Benchmark: cm vs graphify
 
-Risultati dei benchmark eseguiti il 2026-08-21 20:35:36.
+Benchmark results collected on 2026-08-21 20:35:36.
 
-| # | Sistema | Operazione | Tempo (s) | Esito | Dettaglio |
+| # | System | Operation | Time (s) | Status | Detail |
 |---|---------|------------|-----------|-------|-----------|
 | 1 | cm | init | .113s | ✅ | ok |
 | 2 | graphify | pipeline | .075s | ❌ | graph.json found |
@@ -27,7 +27,7 @@ Risultati dei benchmark eseguiti il 2026-08-21 20:35:36.
 
 ## Storage
 
-| Sistema | Dimensione |
+| System | Size |
 |---------|-----------|
 | cm | 44KB |
 | graphify | 52KB |

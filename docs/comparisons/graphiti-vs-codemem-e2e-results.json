@@ -1,0 +1,1320 @@
+{
+  "benchmark": "graphiti-vs-code-mem-e2e",
+  "dataset": "cognitive-memory-architecture-v1",
+  "corpus_size": 11,
+  "queries": 9,
+  "repeats_per_query": 3,
+  "started_at": "2026-09-21T20:07:19.761Z",
+  "environment": {
+    "node": "v26.5.0",
+    "python": "/tmp/code-mem-graphiti-venv",
+    "graphiti_package": "graphiti-core==0.30.2",
+    "graphiti_llm": "llama3.1:8b",
+    "graphiti_embeddings": "local-hash-256",
+    "code_mem_command": "/Users/alessiobacin/Development/Code/code-mem/bin/cm",
+    "graph_database": "FalkorDB Docker, isolated benchmark container"
+  },
+  "code_mem": {
+    "system": "code-mem",
+    "status": "ok",
+    "queries": [
+      {
+        "id": "current-provider",
+        "text": "What is the current production API provider?",
+        "runs": [
+          {
+            "latency_ms": 213.409,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.52 sem=0.000 concept=0.83 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.47 sem=0.000 concept=0.67 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.47 sem=0.000 concept=0.67 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.46 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.42 sem=0.000 concept=0.50 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.42 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.38 sem=0.000 concept=0.17 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.38 sem=0.000 concept=0.33 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          },
+          {
+            "latency_ms": 213.648,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.54 sem=0.000 concept=0.83 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.48 sem=0.000 concept=0.67 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.48 sem=0.000 concept=0.67 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.48 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.44 sem=0.000 concept=0.50 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.43 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.40 sem=0.000 concept=0.17 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.39 sem=0.000 concept=0.33 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          },
+          {
+            "latency_ms": 215.8,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.55 sem=0.000 concept=0.83 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.49 sem=0.000 concept=0.67 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.49 sem=0.000 concept=0.67 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.49 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.45 sem=0.000 concept=0.50 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.44 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.41 sem=0.000 concept=0.17 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.41 sem=0.000 concept=0.33 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 213.648,
+          "p95": 215.8
+        }
+      },
+      {
+        "id": "previous-provider",
+        "text": "Which provider was used before the current one?",
+        "runs": [
+          {
+            "latency_ms": 225.27,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.48 sem=0.000 concept=0.50 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.46 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_b81887a5] [event] [project] score=0.43 sem=0.000 concept=0.38 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.41 sem=0.000 concept=0.25 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.41 sem=0.000 concept=0.25 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.40 sem=0.000 concept=0.25 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.40 sem=0.000 concept=0.25 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.36 sem=0.000 concept=0.13 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          },
+          {
+            "latency_ms": 213.214,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.50 sem=0.000 concept=0.50 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.47 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_b81887a5] [event] [project] score=0.44 sem=0.000 concept=0.38 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.43 sem=0.000 concept=0.25 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.42 sem=0.000 concept=0.25 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.41 sem=0.000 concept=0.25 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.41 sem=0.000 concept=0.25 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.38 sem=0.000 concept=0.13 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          },
+          {
+            "latency_ms": 219.515,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.51 sem=0.000 concept=0.50 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.49 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_b81887a5] [event] [project] score=0.46 sem=0.000 concept=0.38 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.44 sem=0.000 concept=0.25 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.43 sem=0.000 concept=0.25 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.42 sem=0.000 concept=0.25 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.42 sem=0.000 concept=0.25 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.39 sem=0.000 concept=0.13 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 219.515,
+          "p95": 225.27
+        }
+      },
+      {
+        "id": "webhook-retry",
+        "text": "How are Stripe webhook retries handled?",
+        "runs": [
+          {
+            "latency_ms": 236.411,
+            "rank": 6,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.57 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.50 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.48 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.48 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.48 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.47 sem=0.000 concept=0.33 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.43 sem=0.000 concept=0.17 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.42 sem=0.000 concept=0.17 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          },
+          {
+            "latency_ms": 212.086,
+            "rank": 6,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.59 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.51 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.50 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.50 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.50 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.49 sem=0.000 concept=0.33 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.44 sem=0.000 concept=0.17 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.43 sem=0.000 concept=0.17 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          },
+          {
+            "latency_ms": 212.268,
+            "rank": 6,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.60 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.50 sem=0.000 concept=0.33 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.45 sem=0.000 concept=0.17 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.44 sem=0.000 concept=0.17 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 1,
+        "mrr": 0.16666666666666666,
+        "latency_ms": {
+          "p50": 212.268,
+          "p95": 236.411
+        }
+      },
+      {
+        "id": "webhook-fix",
+        "text": "What fixed duplicate webhook deliveries?",
+        "runs": [
+          {
+            "latency_ms": 246.851,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.66 sem=0.000 concept=0.80 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.60 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.51 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.47 sem=0.000 concept=0.20 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n"
+            ]
+          },
+          {
+            "latency_ms": 240.041,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.66 sem=0.000 concept=0.80 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.60 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.51 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.48 sem=0.000 concept=0.20 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n"
+            ]
+          },
+          {
+            "latency_ms": 219.702,
+            "rank": 1,
+            "hit": true,
+            "rows": [
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.66 sem=0.000 concept=0.80 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.60 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.51 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.51 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.48 sem=0.000 concept=0.20 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 240.041,
+          "p95": 246.851
+        }
+      },
+      {
+        "id": "data-layer",
+        "text": "Which database and cache technologies are used?",
+        "runs": [
+          {
+            "latency_ms": 212.061,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.59 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.48 sem=0.000 concept=0.29 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.45 sem=0.000 concept=0.14 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n"
+            ]
+          },
+          {
+            "latency_ms": 213.242,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.59 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.48 sem=0.000 concept=0.29 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.45 sem=0.000 concept=0.14 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n"
+            ]
+          },
+          {
+            "latency_ms": 199.713,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.59 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.48 sem=0.000 concept=0.29 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.45 sem=0.000 concept=0.14 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 212.061,
+          "p95": 213.242
+        }
+      },
+      {
+        "id": "authentication",
+        "text": "How is authentication implemented?",
+        "runs": [
+          {
+            "latency_ms": 253.78,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.59 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.58 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.53 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.52 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 240.422,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.58 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.52 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 207.951,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.58 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.52 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 240.422,
+          "p95": 253.78
+        }
+      },
+      {
+        "id": "search-queue",
+        "text": "How is search indexing queued?",
+        "runs": [
+          {
+            "latency_ms": 192.436,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.58 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.52 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 264.988,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.61 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.58 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.52 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.52 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 192.69,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.59 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 192.69,
+          "p95": 264.988
+        }
+      },
+      {
+        "id": "retention",
+        "text": "What happens to raw conversations after 90 days?",
+        "runs": [
+          {
+            "latency_ms": 242.646,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.59 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 244.786,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.59 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 232.668,
+            "rank": null,
+            "hit": false,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.60 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.59 sem=0.000 concept=0.00 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.54 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.53 sem=0.000 concept=0.00 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 242.646,
+          "p95": 244.786
+        }
+      },
+      {
+        "id": "provider-change",
+        "text": "What changed on 2025-04-01?",
+        "runs": [
+          {
+            "latency_ms": 221.001,
+            "rank": 3,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.61 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.59 sem=0.000 concept=0.67 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.55 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.51 sem=0.000 concept=0.33 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.50 sem=0.000 concept=0.33 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.50 sem=0.000 concept=0.33 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 260.102,
+            "rank": 3,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.61 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.59 sem=0.000 concept=0.67 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.55 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.51 sem=0.000 concept=0.33 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.50 sem=0.000 concept=0.33 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.50 sem=0.000 concept=0.33 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n"
+            ]
+          },
+          {
+            "latency_ms": 209.041,
+            "rank": 3,
+            "hit": true,
+            "rows": [
+              "[mem_decision_h_20c8603c] [decision] [project] score=0.62 sem=0.000 concept=0.00 The current production API provider is OpenAI; the previous provider...\n  Summary: The current production API provider is OpenAI; the previous provider was Anthropic.\n  Body: The current production API provider is OpenAI; the previous provider was Anthropic.",
+              "[mem_procedure_h_ca489c3c] [procedure] [project] score=0.61 sem=0.000 concept=0.00 The billing worker must retry Stripe webhooks with exponential backof...\n  Summary: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.\n  Body: The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+              "[mem_event_h_da3c56d2] [event] [project] score=0.59 sem=0.000 concept=0.67 On 2025-04-01 the API provider changed again from Anthropic to OpenAI...\n  Summary: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.\n  Body: On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+              "[mem_fact_h_2ac18797] [fact] [project] score=0.55 sem=0.000 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot",
+              "[mem_architecture_h_b0e1917d] [architecture] [project] score=0.53 sem=0.000 concept=0.00 The mobile app is written in React Native and shares TypeScript types...\n  Summary: The mobile app is written in React Native and shares TypeScript types with the API.\n  Body: The mobile app is written in React Native and shares TypeScript types with the API.",
+              "[mem_issue_h_d15a0f20] [issue] [project] score=0.51 sem=0.000 concept=0.33 A regression on 2025-03-11 caused duplicate webhook deliveries; it wa...\n  Summary: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.\n  Body: A regression on 2025-03-11 caused duplicate webhook deliveries; it was fixed by adding idempotency keys.",
+              "[mem_event_h_b81887a5] [event] [project] score=0.50 sem=0.000 concept=0.33 On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Summary: On 2025-01-10 the production API provider was OpenAI in eu-west-1.\n  Body: On 2025-01-10 the production API provider was OpenAI in eu-west-1.",
+              "[mem_event_h_f8f973df] [event] [project] score=0.50 sem=0.000 concept=0.33 On 2025-02-03 the team switched the production API provider from Open...\n  Summary: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n  Body: On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.\n"
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 0.3333333333333333,
+        "latency_ms": {
+          "p50": 221.001,
+          "p95": 260.102
+        }
+      }
+    ],
+    "errors": [],
+    "temp_root": "/var/folders/n1/86crx3px60355s2z86fvvxtm0000gn/T/code-mem-graphiti-e2e-F48KXM",
+    "ingestion": {
+      "episodes": 11,
+      "latency_ms": {
+        "p50": 148.692,
+        "p95": 158.032,
+        "total": 1637.729
+      }
+    },
+    "summary": {
+      "queries": 9,
+      "repeats_per_query": 3,
+      "hit_at_1": 0.3333,
+      "hit_at_3": 0.4444,
+      "hit_at_8": 0.5556,
+      "mrr": 0.3889,
+      "query_latency_ms": {
+        "p50": 219.515,
+        "p95": 260.102
+      },
+      "ingestion": {
+        "episodes": 11,
+        "latency_ms": {
+          "p50": 148.692,
+          "p95": 158.032,
+          "total": 1637.729
+        }
+      }
+    }
+  },
+  "graphiti": {
+    "system": "graphiti",
+    "status": "ok",
+    "dataset": "cognitive-memory-architecture-v1",
+    "package": "graphiti-core==0.30.2",
+    "llm": "llama3.1:8b",
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "embedding": "local-hash-256",
+    "reranker": "local-lexical",
+    "queries": [
+      {
+        "id": "current-provider",
+        "text": "What is the current production API provider?",
+        "runs": [
+          {
+            "latency_ms": 8.831,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SHARES_TYPES_WITH",
+                "fact": "The mobile app is written in React Native and shares TypeScript types with the API.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 6.798,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SHARES_TYPES_WITH",
+                "fact": "The mobile app is written in React Native and shares TypeScript types with the API.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 7.099,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SHARES_TYPES_WITH",
+                "fact": "The mobile app is written in React Native and shares TypeScript types with the API.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 7.099,
+          "p95": 8.831
+        }
+      },
+      {
+        "id": "previous-provider",
+        "text": "Which provider was used before the current one?",
+        "runs": [
+          {
+            "latency_ms": 4.617,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 4.52,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 4.385,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 4.52,
+          "p95": 4.617
+        }
+      },
+      {
+        "id": "webhook-retry",
+        "text": "How are Stripe webhook retries handled?",
+        "runs": [
+          {
+            "latency_ms": 2.652,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 2.802,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 3.092,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 2.802,
+          "p95": 3.092
+        }
+      },
+      {
+        "id": "webhook-fix",
+        "text": "What fixed duplicate webhook deliveries?",
+        "runs": [
+          {
+            "latency_ms": 3.65,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 2.863,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 2.653,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "USES",
+                "fact": "The billing worker must retry Stripe webhooks with exponential backoff up to five attempts.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 2.863,
+          "p95": 3.65
+        }
+      },
+      {
+        "id": "data-layer",
+        "text": "Which database and cache technologies are used?",
+        "runs": [
+          {
+            "latency_ms": 2.483,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "USES_FOR",
+                "fact": "The repository uses PostgreSQL for durable state and Redis for cache.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 2.881,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "USES_FOR",
+                "fact": "The repository uses PostgreSQL for durable state and Redis for cache.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 2.489,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "USES_FOR",
+                "fact": "The repository uses PostgreSQL for durable state and Redis for cache.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 2.489,
+          "p95": 2.881
+        }
+      },
+      {
+        "id": "authentication",
+        "text": "How is authentication implemented?",
+        "runs": [
+          {
+            "latency_ms": 5.112,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SHARES_TYPES_WITH",
+                "fact": "The mobile app is written in React Native and shares TypeScript types with the API.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 5.034,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SHARES_TYPES_WITH",
+                "fact": "The mobile app is written in React Native and shares TypeScript types with the API.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 5.288,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "The current production API provider is OpenAI; the previous provider was Anthropic.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SHARES_TYPES_WITH",
+                "fact": "The mobile app is written in React Native and shares TypeScript types with the API.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 5.112,
+          "p95": 5.288
+        }
+      },
+      {
+        "id": "search-queue",
+        "text": "How is search indexing queued?",
+        "runs": [
+          {
+            "latency_ms": 2.062,
+            "hit": false,
+            "rank": null,
+            "rows": []
+          },
+          {
+            "latency_ms": 1.865,
+            "hit": false,
+            "rank": null,
+            "rows": []
+          },
+          {
+            "latency_ms": 1.745,
+            "hit": false,
+            "rank": null,
+            "rows": []
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 1.865,
+          "p95": 2.062
+        }
+      },
+      {
+        "id": "retention",
+        "text": "What happens to raw conversations after 90 days?",
+        "runs": [
+          {
+            "latency_ms": 4.324,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "DELETES_AFTER",
+                "fact": "The data retention policy deletes raw conversation episodes after 90 days.",
+                "valid_at": "2025-04-30 00:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "RETAINS_UNTIL_INVALIDATED",
+                "fact": "The data retention policy deletes raw conversation episodes after 90 days, while accepted memories remain until explicitly invalidated.",
+                "valid_at": "2025-04-30 00:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 3.676,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "DELETES_AFTER",
+                "fact": "The data retention policy deletes raw conversation episodes after 90 days.",
+                "valid_at": "2025-04-30 00:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "RETAINS_UNTIL_INVALIDATED",
+                "fact": "The data retention policy deletes raw conversation episodes after 90 days, while accepted memories remain until explicitly invalidated.",
+                "valid_at": "2025-04-30 00:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 3.491,
+            "hit": false,
+            "rank": null,
+            "rows": [
+              {
+                "name": "DELETES_AFTER",
+                "fact": "The data retention policy deletes raw conversation episodes after 90 days.",
+                "valid_at": "2025-04-30 00:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "RETAINS_UNTIL_INVALIDATED",
+                "fact": "The data retention policy deletes raw conversation episodes after 90 days, while accepted memories remain until explicitly invalidated.",
+                "valid_at": "2025-04-30 00:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 0,
+        "hit_at_3": 0,
+        "hit_at_8": 0,
+        "mrr": 0,
+        "latency_ms": {
+          "p50": 3.676,
+          "p95": 4.324
+        }
+      },
+      {
+        "id": "provider-change",
+        "text": "What changed on 2025-04-01?",
+        "runs": [
+          {
+            "latency_ms": 4.221,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 4.538,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          },
+          {
+            "latency_ms": 6.439,
+            "hit": true,
+            "rank": 1,
+            "rows": [
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-04-01 the API provider changed again from Anthropic to OpenAI for latency.",
+                "valid_at": "2025-04-01 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "SWITCHED_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              },
+              {
+                "name": "CHANGED_PROVIDER_TO",
+                "fact": "On 2025-02-03 the team switched the production API provider from OpenAI to Anthropic; the region remained eu-west-1.",
+                "valid_at": "2025-02-03 12:00:00+00:00",
+                "invalid_at": ""
+              }
+            ]
+          }
+        ],
+        "hit_at_1": 1,
+        "hit_at_3": 1,
+        "hit_at_8": 1,
+        "mrr": 1,
+        "latency_ms": {
+          "p50": 4.538,
+          "p95": 6.439
+        }
+      }
+    ],
+    "errors": [],
+    "ingestion": {
+      "episodes": 11,
+      "latency_ms": {
+        "p50": 22132.785,
+        "p95": 77336.344,
+        "total": 311634.211
+      }
+    },
+    "duration_ms": 311880.686,
+    "summary": {
+      "queries": 9,
+      "repeats_per_query": 3,
+      "hit_at_1": 0.5556,
+      "hit_at_3": 0.5556,
+      "hit_at_8": 0.5556,
+      "mrr": 0.5556,
+      "query_latency_ms": {
+        "p50": 3.676,
+        "p95": 7.099
+      },
+      "ingestion": {
+        "episodes": 11,
+        "latency_ms": {
+          "p50": 22132.785,
+          "p95": 77336.344,
+          "total": 311634.211
+        }
+      }
+    }
+  },
+  "raw_paths": {
+    "graphiti": "/var/folders/n1/86crx3px60355s2z86fvvxtm0000gn/T/code-mem-graphiti-e2e-F48KXM/graphiti.json",
+    "code_mem_project": "/var/folders/n1/86crx3px60355s2z86fvvxtm0000gn/T/code-mem-graphiti-e2e-F48KXM/project"
+  }
+}

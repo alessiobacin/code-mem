@@ -56,7 +56,7 @@ MORE_N=$(cd "$WORK" && $CMD stats 2>&1 | grep -oE "[0-9]+" | sort -n | tail -1)
 if [ -n "${MORE_N:-}" ] && [ "${BASE_N:-0}" -lt "${MORE_N:-0}" ]; then
   check "cm stats cresce con piu dati reali (utile=azioni/tempo)" "" PASS
 else
-  check "cm stats cresce con piu dati reali (atteso: piu recall->piu valore; base=$BASE_N more=$MORE_N)" "" RED
+  check "cm stats grows with more real data (expected: more recall -> more value; base=$BASE_N more=$MORE_N)" "" RED
 fi
 
 echo ""

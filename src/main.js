@@ -16,6 +16,7 @@ async function main() {
   }
   const cmd = a[0];
   const { flags: earlyFlags } = parseArgs(a.slice(1));
+  const globalMemoryRequested = Boolean(earlyFlags.global || earlyFlags.scope === "global");
 
   if (cmd === "setup") {
     await setupHarness();
@@ -27,13 +28,22 @@ async function main() {
     // `cm update --memory` refreshes the project memory (snapshot + graph),
     // with optional noise cleanup (--clean) or full reset (--reset). Without
     // --memory the command remains the binary self-update.
-    if (flags.memory) {
+    if (flags.memory || flags.deep) {
       const cwd2 = process.cwd();
       if (!existsSync(mp(cwd2, SF))) {
-        console.error("No memory/. Run: cm init");
+        console.error("No memory/. Run: cm init --deep");
         process.exit(1);
       }
       const d2 = od(mp(cwd2, SF));
+      if (flags.deep) {
+        try {
+          await runDeepProjectUpdate(d2, cwd2, { noLlm: Boolean(flags["no-llm"]), noAst: Boolean(flags["no-ast"]) });
+        } finally {
+          d2.close();
+          if (flags["hook-refresh"]) releaseGraphRefreshLock(cwd2);
+        }
+        return;
+      }
       // Hook audit: harnesses whose marker file exists but whose hook was
       // never installed get it automatically (fixes cross-harness staleness).
       const hookFixed = auditHarnessHooks(cwd2);
@@ -72,8 +82,143 @@ async function main() {
     return;
   }
 
+  if (cmd === "projects") {
+    const subcommand = String(a[1] || "list").toLowerCase();
+    const { flags } = parseArgs(a.slice(subcommand === "--json" ? 1 : 2));
+    const json = Boolean(flags.json || subcommand === "--json");
+    const projects = managedProjectEntries().map((project) => ({
+      id: project.id,
+      name: project.name,
+      root: project.root,
+      memory: existsSync(mp(project.root, SF)),
+      registeredAt: project.registeredAt,
+      updatedAt: project.updatedAt,
+    }));
+    if (subcommand === "list" || subcommand === "ls" || subcommand === "--json") {
+      if (json) console.log(JSON.stringify({ projects }, null, 2));
+      else if (!projects.length) console.log("No Code-Mem projects registered.");
+      else for (const project of projects) console.log(`${project.id}\t${project.name}\t${project.root}${project.memory ? "" : "\t(memory unavailable)"}`);
+      return;
+    }
+    const selector = a[2];
+    const project = resolveManagedProject(selector);
+    if (!project) {
+      console.error(`Unknown or ambiguous Code-Mem project: ${selector || "(missing selector)"}`);
+      process.exit(1);
+    }
+    if (subcommand === "show") {
+      console.log(JSON.stringify({ ...project, memory: existsSync(mp(project.root, SF)), graph: mp(project.root, GF), graphHtml: mp(project.root, "graph-3d.html") }, null, 2));
+      return;
+    }
+    if (subcommand === "graph" || subcommand === "open") {
+      if (!existsSync(mp(project.root, SF))) {
+        console.error(`Project memory is unavailable: ${project.root}`);
+        process.exit(1);
+      }
+      const port = Number.parseInt(flags.port || String(graphServicePort()), 10);
+      const status = await graphServiceStatus(port);
+      if (!status.running) graphServiceStart(port);
+      console.log(graphProjectUrl(project.root, port));
+      return;
+    }
+    if (subcommand === "recall") {
+      if (!existsSync(mp(project.root, SF))) {
+        console.error(`Project memory is unavailable: ${project.root}`);
+        process.exit(1);
+      }
+      const { flags: recallFlags, rest } = parseArgs(a.slice(3));
+      const task = rest.join(" ").trim();
+      if (!task) {
+        console.error("Usage: cm projects recall <project-id|path|name> <task> [--level n] [--limit n] [--mode mode]");
+        process.exit(1);
+      }
+      const target = od(mp(project.root, SF));
+      ensureGraphStoreReady(target, project.root);
+      const level = Math.max(1, Math.min(3, Number.parseInt(recallFlags.level || "2", 10) || 2));
+      const limit = Math.max(1, Number.parseInt(recallFlags.limit || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT);
+      const mode = recallFlags.mode || "hybrid";
+      if (!["keyword", "hybrid", "semantic", "explore"].includes(mode)) {
+        target.close();
+        console.error("--mode must be: keyword, hybrid, semantic, or explore");
+        process.exit(1);
+      }
+      const recalled = await recallMemories(target, project.root, task, level, limit, mode, { scope: "project" });
+      console.log(`Project: ${project.name} (${project.root})`);
+      console.log(renderRecall(task, level, recalled));
+      target.close();
+      return;
+    }
+    console.error("Usage: cm projects [list|show|recall|graph] [selector] [query]");
+    process.exit(1);
+  }
+
+  if (cmd === "service") {
+    const subcommand = String(a[1] || "status").toLowerCase();
+    const { flags } = parseArgs(a.slice(2));
+    const port = Number.parseInt(flags.port || String(graphServicePort()), 10);
+    if (subcommand === "run" || subcommand === "foreground") {
+      await runGraphServiceServer(port);
+      return;
+    }
+    if (subcommand === "install") {
+      const projectMemory = existsSync(mp(c, SF));
+      if (projectMemory) registerGraphProject(c);
+      const installed = graphServiceInstall(port);
+      console.log(`Global graph service installed: ${installed.path}`);
+      console.log(`Service scope: one local process, project-isolated memory (${graphServiceUrl(port)}).`);
+      if (!flags["no-start"] && !installed.started) graphServiceStart(port);
+      return;
+    }
+    if (subcommand === "start") {
+      const projectMemory = existsSync(mp(c, SF));
+      if (projectMemory) registerGraphProject(c);
+      graphServiceStart(port);
+      console.log(`Global graph service requested at ${graphServiceUrl(port)}.`);
+      return;
+    }
+    if (subcommand === "stop") {
+      console.log(graphServiceStop() ? "Global graph service stopped." : "Global graph service was not running.");
+      return;
+    }
+    if (subcommand === "restart") {
+      graphServiceStop();
+      graphServiceStart(port);
+      console.log(`Global graph service restarted at ${graphServiceUrl(port)}.`);
+      return;
+    }
+    if (subcommand === "status") {
+      const status = await graphServiceStatus(port);
+      console.log(JSON.stringify({ ...status, manager: graphServiceManager(), unit: graphServiceUnitPath() }, null, 2));
+      return;
+    }
+    console.error("Usage: cm service install|start|run|status|restart|stop [--port N]");
+    process.exit(1);
+  }
+
+  if (cmd === "serve" || (cmd === "graph" && a[1] === "serve")) {
+    const offset = cmd === "graph" ? 2 : 1;
+    const { flags } = parseArgs(a.slice(offset));
+    if (!existsSync(mp(c, SF))) {
+      console.error("No memory/. Run: cm init --deep");
+      process.exit(1);
+    }
+    registerGraphProject(c);
+    if (flags.foreground) {
+      const port = Number.parseInt(flags.port || String(graphBridgePort(c)), 10);
+      await runGraphServer(c, port);
+      return;
+    }
+    const port = Number.parseInt(flags.port || String(graphServicePort()), 10);
+    const status = await graphServiceStatus(port);
+    if (!status.running) graphServiceStart(port);
+    console.log(`Graph: ${graphProjectUrl(c, port)}`);
+    console.log("Using the global per-user Code-Mem graph service; project memory remains isolated.");
+    return;
+  }
+
   if (cmd === "init") {
-    const harnessArg = a[1];
+    const { flags: initFlags, rest: initRest } = parseArgs(a.slice(1));
+    const harnessArg = initRest[0];
     const dr = mp(c, "");
     mkdirSync(dr, { recursive: true });
     if (!existsSync(mp(c, MF))) wr(mp(c, MF), "# Project Memory\n");
@@ -105,10 +250,34 @@ async function main() {
     refreshProjections(nd, c);
     try { runStmt(nd, "VACUUM"); } catch {}
     try { const h = getGitHead(c); if (h) setMeta(nd, "git_head", h); } catch {}
+    if (initFlags.deep) {
+      await runDeepProjectUpdate(nd, c, { noLlm: Boolean(initFlags["no-llm"]), noAst: Boolean(initFlags["no-ast"]) });
+      registerGraphProject(c);
+      nd.close();
+      console.log(`Memory initialized at ${resolve(dr)}/`);
+      return;
+    }
     nd.close();
+    registerGraphProject(c);
     // Install optional AST parser deps (non-blocking, best-effort)
     try { installAcornDeps(); } catch {}
-    await installHooks(c, harnessArg && harnessArg[0] !== "-" ? harnessArg.toLowerCase() : "claude");
+    // Selective harness wiring: an explicit `cm init <harness>` wins; otherwise
+    // install hooks/skill only for the harness actually present in this
+    // project (marker or settings). Never create folders for other harnesses.
+    let initHarness = harnessArg && harnessArg[0] !== "-" ? harnessArg.toLowerCase() : "";
+    if (!initHarness) {
+      const present = collapseAmbiguousAgentHarnesses(c, detectHarnesses(c, { projectOnly: true }));
+      initHarness = present[0]?.name || "";
+    }
+    if (initHarness && HARNESS_BINARIES[initHarness]) {
+      await installHooks(c, initHarness);
+      // With an explicit `cm init <harness>` the skill write + message stay
+      // in the legacy block below (stable `written`/`Skipped` messages).
+      // Auto-detected harnesses get the skill here instead.
+      if (!harnessArg || harnessArg[0] === "-") installHarnessSkill(c, initHarness);
+    } else if (!initHarness) {
+      console.log("No harness marker detected — hooks/skills skipped. Re-run `cm init <harness>` (claude|pi|codex|opencode|gemini|qwen|copilot|cursor|windsurf) to wire one.");
+    }
     let msg = `Memory initialized at ${resolve(dr)}/\n${s.ts.length} technologies, ${s.no.length} nodes${imported ? `, ${imported} imported entries` : ""}${importedGraph ? `, ${importedGraph} imported graph nodes` : ""}`;
     if (harnessArg && harnessArg[0] !== "-") {
       const harness = harnessArg.toLowerCase();
@@ -138,7 +307,7 @@ async function main() {
   }
 
   const needsProjectMemory = !(
-    (cmd === "save" && earlyFlags.global) ||
+    (cmd === "save" && globalMemoryRequested) ||
     (cmd === "backup" && earlyFlags.global) ||
     (cmd === "restore" && earlyFlags.global)
   );
@@ -201,6 +370,7 @@ async function main() {
   if (cmd === "hook") {
     const { flags } = parseArgs(a.slice(1));
     const event = String(flags.event || "").toLowerCase();
+    let refreshAfterClose = false;
     let input = "";
     try { input = readFileSync(0, "utf8"); } catch {}
     let payload = {};
@@ -225,14 +395,28 @@ async function main() {
       const response = payload.last_assistant_message || payload.assistant_message || payload.response || payload.message;
       if (typeof prompt === "string") captureAuto(d, c, { role: "dev", content: prompt });
       if (typeof response === "string") captureAuto(d, c, { role: "agent", content: response });
+      refreshAfterClose = event === "response" || event === "turn_end";
     }
     d.close();
+    if (refreshAfterClose) scheduleGraphRefresh(c);
     return;
   }
 
   if (cmd === "save") {
     const { flags, rest } = parseArgs(a.slice(1));
-    const text = rest.join(" ").trim();
+    let text = rest.join(" ").trim();
+    const globalSave = Boolean(flags.global || flags.scope === "global");
+    // Every preference passes through an LLM that interprets it, shortens
+    // it (caveman-style) and translates it to English. Deterministic
+    // fallback keeps the save working when no LLM is reachable.
+    let preferenceVia = "";
+    if ((flags.kind || "fact") === "preference" && text && !flags["no-normalize"]) {
+      const normalized = normalizePreferenceText(c, text);
+      if (normalized.text) {
+        text = normalized.text;
+        preferenceVia = normalized.via;
+      }
+    }
     const payload = {
       body: text,
       kind: flags.kind || "fact",
@@ -240,37 +424,49 @@ async function main() {
       title: flags.title || "",
       summary: flags.summary || "",
       confidence: flags.confidence || DEFAULT_CONFIDENCE,
+      importance: flags.importance || flags.salience || DEFAULT_SALIENCE,
       taskKind: flags.task || "",
       tags: flags.tag ? String(flags.tag).split(",").map((t) => t.trim()).filter(Boolean) : [],
       files: flags.file ? String(flags.file).split(",").map((t) => t.trim()).filter(Boolean) : [],
       source: "manual",
+      sourceType: flags.source || "manual",
+      scope: globalSave ? "global" : (flags.scope || "project"),
+      observedAt: flags["observed-at"] || flags.observedAt || "",
+      occurredAt: flags["occurred-at"] || flags.occurredAt || "",
+      validFrom: flags["valid-from"] || flags.validFrom || "",
+      validTo: flags["valid-to"] || flags.validTo || "",
+      supersedesId: flags.supersedes || "",
       force: Boolean(flags.force),
     };
     // Capture layer: `cm save --auto` also records a conversation row (messages)
     // for whatever dev/agent just wrote, without needing an explicit capture cmd.
     const autoRole = flags.auto ? (flags.role || "dev") : null;
-    if (flags.global) {
+    if (globalSave) {
       const gd = od(globalDbPath());
       const result = saveMemorySemanticDedup(gd, c, payload);
-      if (result.duplicate) {
+      if (result.ignored) {
+        console.log(`Ignored memory noise: ${result.reason}`);
+      } else if (result.duplicate) {
         console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
       } else {
         const snapshot = saveGlobalSnapshot(gd, result.id);
-        console.log(`${result.created ? "Saved" : "Already exists"} globally: ${result.id} (${snapshot})`);
+        console.log(`${result.created ? "Saved" : "Already exists"} globally: ${result.id} (${snapshot})${preferenceVia ? ` [preference via ${preferenceVia}]` : ""}`);
       }
-      if (autoRole) {
+      if (autoRole && !result.ignored) {
         const cap = captureAuto(gd, c, { role: autoRole, content: text });
         if (cap) console.log(`Captured ${cap.role} message (session ${cap.session_id})`);
       }
       gd.close();
     } else {
       const result = saveMemorySemanticDedup(d, c, payload);
-      if (result.duplicate) {
+      if (result.ignored) {
+        console.log(`Ignored memory noise: ${result.reason}`);
+      } else if (result.duplicate) {
         console.log(`Duplicate (similar to [${result.existing.id}] "${result.existing.title}"). Use --force to save anyway.`);
       } else {
-        console.log(`${result.created ? "Saved" : "Already exists"}: ${result.id}`);
+        console.log(`${result.created ? "Saved" : "Already exists"}: ${result.id}${preferenceVia ? ` [preference via ${preferenceVia}]` : ""}`);
       }
-      if (autoRole) {
+      if (autoRole && !result.ignored) {
         const cap = captureAuto(d, c, { role: autoRole, content: text });
         if (cap) console.log(`Captured ${cap.role} message (session ${cap.session_id})`);
       }
@@ -325,14 +521,19 @@ async function main() {
   }
 
   if (cmd === "add" || cmd === "add-user") {
-    const text = a.slice(1).join(" ").trim();
+    let text = a.slice(1).join(" ").trim();
+    let via = "";
+    if (cmd === "add-user" && text) {
+      const normalized = normalizePreferenceText(c, text);
+      if (normalized.text) { text = normalized.text; via = ` [preference via ${normalized.via}]`; }
+    }
     const result = saveMemory(d, c, {
       body: text,
       kind: cmd === "add-user" ? "preference" : "fact",
       layer: cmd === "add-user" ? "user" : "semantic",
       source: "legacy-cli",
     });
-    console.log(`${result.created ? "Added" : "Already exists"}: ${result.id}`);
+    console.log(result.ignored ? `Ignored memory noise: ${result.reason}` : `${result.created ? "Added" : "Already exists"}: ${result.id}${via}`);
     d.close();
     return;
   }
@@ -350,7 +551,7 @@ async function main() {
   }
 
   if (cmd === "recent") {
-    const limit = Number.parseInt(a[1], 10) || 10;
+    const limit = Math.max(1, Math.min(200, Number.parseInt(a[1], 10) || 10));
     const rows = listMemoryRows(d, "WHERE mi.status='active'", [], `ORDER BY mi.updated_at DESC LIMIT ${limit}`);
     printRows(rows);
     d.close();
@@ -386,8 +587,8 @@ async function main() {
       console.log("Usage: cm archive <id>");
       process.exit(1);
     }
-    try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [id]); } catch {}
-    runStmt(d, "UPDATE memory_items SET status='archived', updated_at=? WHERE id=?", [nowIso(), id]);
+    removeMemoryFtsRow(d, id);
+    runStmt(d, "UPDATE memory_items SET status='archived',belief_status='archived',invalidated_at=?,updated_at=? WHERE id=?", [nowIso(), nowIso(), id]);
     refreshProjections(d, c);
     console.log(`Archived ${id}.`);
     d.close();
@@ -402,8 +603,8 @@ async function main() {
     }
     runStmt(
       d,
-      "UPDATE memory_items SET last_accessed_at=?, access_count=COALESCE(access_count,0)+1, updated_at=? WHERE id=?",
-      [nowIso(), nowIso(), id]
+      "UPDATE memory_items SET last_accessed_at=?, access_count=COALESCE(access_count,0)+1, retrieval_strength=MIN(1,COALESCE(retrieval_strength,0)+0.05) WHERE id=?",
+      [nowIso(), id]
     );
     console.log(`Touched ${id}.`);
     d.close();
@@ -454,7 +655,7 @@ async function main() {
       console.log("--mode must be: keyword, hybrid, semantic, or explore");
       process.exit(1);
     }
-    recallMemories(d, c, task, level, limit, mode).then((recalled) => {
+    recallMemories(d, c, task, level, limit, mode, { scope: flags.scope || "auto", asOf: flags["as-of"] || flags.asOf || null }).then((recalled) => {
       console.log(renderRecall(task, level, recalled));
       refreshProjections(d, c);
       d.close();
@@ -471,11 +672,11 @@ async function main() {
     }
     const limit = Math.max(1, Number.parseInt(flags.limit || "5", 10) || 5);
     const mode = flags.mode || "hybrid";
-    if (!["keyword", "hybrid", "semantic"].includes(mode)) {
-      console.log("--mode must be: keyword, hybrid, or semantic");
+    if (!["keyword", "hybrid", "semantic", "explore"].includes(mode)) {
+      console.log("--mode must be: keyword, hybrid, semantic, or explore");
       process.exit(1);
     }
-    recallMemories(d, c, task, 3, limit, mode, { explain: true }).then((recalled) => {
+    recallMemories(d, c, task, 3, limit, mode, { explain: true, scope: flags.scope || "auto", asOf: flags["as-of"] || flags.asOf || null }).then((recalled) => {
       console.log(renderRecall(task, 3, recalled));
       d.close();
     });
@@ -499,7 +700,37 @@ async function main() {
       d.close();
       return;
     }
-    consolidateMemories(d, c).then(() => { d.close(); });
+    consolidateMemories(d, c, { acceptCandidates: Boolean(flags["accept-candidates"] || flags.accept) }).then(() => { d.close(); });
+    return;
+  }
+
+  if (cmd === "verify") {
+    const id = a[1];
+    if (!id) { console.log("Usage: cm verify <id> [--by verifier]"); process.exit(1); }
+    const { flags } = parseArgs(a.slice(2));
+    if (!markMemoryVerified(d, id, String(flags.by || "manual"), { command: "verify" })) {
+      console.log(`Memory not found: ${id}`);
+      d.close();
+      process.exit(1);
+    }
+    refreshProjections(d, c);
+    console.log(`Verified ${id}.`);
+    d.close();
+    return;
+  }
+
+  if (cmd === "contest") {
+    const id = a[1];
+    if (!id) { console.log("Usage: cm contest <id> [reason]"); process.exit(1); }
+    const reason = a.slice(2).join(" ").trim() || "manual_contest";
+    if (!contestMemory(d, id, reason)) {
+      console.log(`Memory not found: ${id}`);
+      d.close();
+      process.exit(1);
+    }
+    refreshProjections(d, c);
+    console.log(`Contested ${id}; verification queued.`);
+    d.close();
     return;
   }
 
@@ -599,7 +830,8 @@ async function main() {
       for (const e of cn) {
         const nid = e.source === id ? e.target : e.source;
         const n = g.nodes.find((x) => x.id === nid);
-        console.log(`  ${e.source === id ? "->" : "<-"} ${n?.label || nid} (${n?.type || "?"}) [${e.relation}, ${e.confidence}]`);
+        const loc = graphNodeLocation(n);
+        console.log(`  ${e.source === id ? "->" : "<-"} ${n?.label || nid} (${n?.type || "?"}) [${e.relation}, ${e.confidence}]${loc ? ` @ ${loc}` : ""}`);
       }
       d.close();
       return;
@@ -711,7 +943,7 @@ async function main() {
       return;
     }
     if (cmd === "gx") {
-      // Graph export: default GraphML, or --format graphml|neo4j|csv|html|svg
+      // Graph export: default GraphML, or --format graphml|neo4j|csv|cypher|html|html3d|3d|svg|obsidian
       const { flags } = parseArgs(a.slice(1));
       const format = flags.format || "graphml";
       if (format === "graphml") {
@@ -720,14 +952,25 @@ async function main() {
       } else if (format === "neo4j" || format === "csv") {
         const { nodesPath, edgesPath } = exportNeo4jCSV(g, c);
         console.log(`Exported Neo4j CSV:\n  nodes: ${nodesPath}\n  edges: ${edgesPath}`);
+      } else if (format === "cypher") {
+        const out = exportCypher(g, c);
+        console.log(`Exported Cypher to ${out} (import with: cypher-shell < ${out})`);
       } else if (format === "html") {
         const out = exportHTML(g, c);
-        console.log(`Exported interactive HTML to ${out}`);
+        const view = graphForVisualization(g);
+        console.log(`Exported interactive HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
+      } else if (format === "html3d" || format === "3d") {
+        const out = export3DHTML(g, c);
+        const view = graphForVisualization(g);
+        console.log(`Exported interactive 3D HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "svg") {
         const out = exportSVG(g, c);
         console.log(`Exported SVG to ${out}`);
+      } else if (format === "obsidian") {
+        const res = exportObsidian(g, c);
+        console.log(`Exported Obsidian vault to ${res.dir} (${res.notes} notes, ${res.communities} communities)`);
       } else {
-        console.log(`Unknown format "${format}". Options: graphml, neo4j, csv, html, svg`);
+        console.log(`Unknown format "${format}". Options: graphml, neo4j, csv, cypher, html, html3d, svg, obsidian`);
       }
       d.close();
       return;
@@ -739,13 +982,25 @@ async function main() {
     return;
   }
 
+  if (cmd === "report") {
+    const g = loadGraphFromStore(d);
+    const { text, outPath } = writeGraphReport(g, c);
+    console.log(text);
+    console.log(`\nReport saved: ${outPath}`);
+    d.close();
+    return;
+  }
+
   if (cmd === "query") {
-    const question = a.slice(1).join(" ");
+    const { flags: qflags, rest: qrest } = parseArgs(a.slice(1));
+    const question = qrest.join(" ");
     if (!question) {
-      console.log("Usage: cm query <question>");
+      console.log("Usage: cm query [--dfs] [--budget N] <question>");
       process.exit(1);
     }
-    // BFS from nodes matching keywords in the question
+    const useDfs = qflags.dfs === true;
+    const budget = Math.max(100, Number.parseInt(qflags.budget || "2000", 10) || 2000);
+    // BFS (default) or DFS (--dfs) from nodes matching keywords in the question
     const keywords = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
     const matchedNodes = new Map();
     for (const kw of keywords) {
@@ -772,18 +1027,30 @@ async function main() {
     const MAX_DEPTH = 3;
     const visited = new Set();
     const results = [];
-    const queue = [...matchedNodes.keys()].map(id => ({ id, depth: 0 }));
-    for (const { id, depth } of queue) {
-      if (visited.has(id)) continue;
+    const pushNode = (id, depth, relation) => {
+      if (visited.has(id)) return null;
       visited.add(id);
       const nd = g.nodes.find(n => n.id === id);
-      results.push({ node: nd?.label || id, type: nd?.type || "?", depth, relation: depth === 0 ? "seed" : "" });
-      if (depth < MAX_DEPTH) {
-        for (const nb of adj[id] || []) {
-          if (!visited.has(nb.node)) {
-            queue.push({ id: nb.node, depth: depth + 1 });
-            const nbn = g.nodes.find(n => n.id === nb.node);
-            results.push({ node: nbn?.label || nb.node, type: nbn?.type || "?", depth: depth + 1, relation: nb.edge.relation });
+      const entry = { node: nd?.label || id, type: nd?.type || "?", depth, relation, loc: graphNodeLocation(nd) };
+      results.push(entry);
+      return entry;
+    };
+    if (useDfs) {
+      // DFS: follow one chain as deep as possible before backtracking.
+      const visit = (id, depth, relation) => {
+        if (visited.has(id) || depth > MAX_DEPTH) return;
+        pushNode(id, depth, relation);
+        if (depth < MAX_DEPTH) for (const nb of adj[id] || []) visit(nb.node, depth + 1, nb.edge.relation);
+      };
+      for (const id of matchedNodes.keys()) visit(id, 0, "seed");
+    } else {
+      const queue = [...matchedNodes.keys()].map(id => ({ id, depth: 0, relation: "seed" }));
+      for (const { id, depth, relation } of queue) {
+        if (visited.has(id)) continue;
+        pushNode(id, depth, relation);
+        if (depth < MAX_DEPTH) {
+          for (const nb of adj[id] || []) {
+            if (!visited.has(nb.node)) queue.push({ id: nb.node, depth: depth + 1, relation: nb.edge.relation });
           }
         }
       }
@@ -791,11 +1058,18 @@ async function main() {
     if (results.length <= matchedNodes.size) {
       console.log(`Seed: ${[...matchedNodes.values()].map(n => n.label).join(", ")} — no further connections found.`);
     } else {
-      console.log(`Query: "${question}"\n  ${matchedNodes.size} seed nodes, ${results.length - matchedNodes.size} related nodes (BFS depth ${MAX_DEPTH}):`);
+      const mode = useDfs ? "DFS" : "BFS";
+      const head = `Query: "${question}"\n  ${matchedNodes.size} seed nodes, ${results.length - matchedNodes.size} related nodes (${mode} depth ${MAX_DEPTH}):`;
+      const body = [];
       for (const r of results) {
         const indent = "  ".repeat(r.depth + 1);
-        console.log(`${indent}${r.depth === 0 ? "*" : "-"} ${r.node} (${r.type})${r.relation ? ` [${r.relation}]` : ""}`);
+        body.push(`${indent}${r.depth === 0 ? "*" : "-"} ${r.node} (${r.type})${r.relation ? ` [${r.relation}]` : ""}${r.loc ? ` @ ${r.loc}` : ""}`);
       }
+      // Token budget (graphify --budget parity): ~4 chars/token, truncate.
+      const charBudget = budget * 4;
+      let out = `${head}\n${body.join("\n")}`;
+      if (out.length > charBudget) out = `${out.slice(0, charBudget)}\n... (truncated at ~${budget} token budget — use --budget N for more)`;
+      console.log(out);
     }
     d.close();
     return;
@@ -856,7 +1130,7 @@ async function main() {
   }
 
   if (cmd === "import") {
-    const { flags } = parseArgs(a.slice(1));
+    const { flags, rest } = parseArgs(a.slice(1));
     const dryRun = flags["dry-run"] === true;
     const opts = { dryRun };
 
@@ -874,6 +1148,65 @@ async function main() {
       if (!dryRun && flags.replace) { runStmt(d, "DELETE FROM memory_items WHERE source = 'claude-mem'"); }
       const result = importFromClaudeMem(d, c, proj, opts);
       console.log(`Imported: ${result.memories} memories from claude-mem`);
+      d.close(); return;
+    }
+
+    // Generic knowledge import. The source may be any Markdown folder or file,
+    // including one outside the project where cm is installed. Structure is
+    // inferred from content; no source application flag is required.
+    const sourceArg = rest.find((value) => value && !value.startsWith("-"));
+    if (sourceArg) {
+      const sourcePath = resolve(sourceArg);
+      let sourceInfo = null;
+      try { sourceInfo = statSync(sourcePath); } catch {}
+      const isMarkdownSource = Boolean(sourceInfo && (sourceInfo.isDirectory() || (sourceInfo.isFile() && /\.(?:md|markdown)$/i.test(sourcePath))));
+      if (isMarkdownSource) {
+        let destructive = Boolean(flags["delete-source"]);
+        if (!dryRun && !destructive && process.stdin.isTTY) {
+          destructive = await askYesNo("Delete imported source Markdown files after a successful import? [y/N] ");
+        }
+        if (destructive && !importSourceDeletionAllowed(sourcePath, c)) {
+          console.log("Source deletion refused: the source overlaps the destination project. Source preserved.");
+          destructive = false;
+        }
+        const importHarnesses = detectHarnesses(c);
+        const importHarness = chooseHarness(importHarnesses);
+        if (importHarness) console.log(`Import LLM: ${importHarness.name} (${importHarness.model}) via its configured settings.`);
+        const result = await importFromWiki(d, c, sourcePath, "knowledge", {
+          ...opts,
+          cwd: c,
+          harness: importHarness,
+          llmLimit: Number(process.env.CM_IMPORT_LLM_LIMIT || 60),
+          llmBatchSize: Number(process.env.CM_IMPORT_LLM_BATCH || 20),
+          llmTimeout: Number(process.env.CM_LLM_TIMEOUT_MS || 45000),
+          replace: Boolean(flags.replace),
+        });
+        if (destructive && result.files > 0) {
+          const deletion = deleteImportedSourceFiles(result.sourceFiles, sourcePath, c);
+          console.log(deletion.deleted === result.files
+            ? `Deleted ${deletion.deleted} imported source file(s).`
+            : `Deleted ${deletion.deleted}/${result.files} imported source file(s); remaining files were preserved.`);
+        } else if (!dryRun) {
+          console.log(`Source preserved: ${sourcePath}`);
+        }
+        const llm = result.llm?.normalized ? `${result.llm.normalized}/${result.llm.attempted} notes via ${result.llm.model}` : "deterministic fallback (LLM unavailable)";
+        const action = dryRun ? "Would import" : "Imported";
+        const mediaInfo = result.media?.converted ? ` + ${result.media.converted} media (${result.media.failed || 0} failed)` : "";
+        console.log(`${action} ${result.memories} memories, ${result.nodes} nodes, ${result.edges} links from ${sourcePath} (${result.files} Markdown files${mediaInfo}). LLM normalization: ${llm}.`);
+        d.close(); return;
+      }
+    }
+
+    if (flags.obsidian || flags.wiki) {
+      const format = flags.obsidian ? "obsidian" : "wiki";
+      const value = flags.obsidian || flags.wiki;
+      const src = value === true ? (a[2] || "") : value;
+      if (!src || !existsSync(src)) {
+        console.log(`Wiki path not found: ${src}`);
+        d.close(); return;
+      }
+      const result = await importFromWiki(d, c, src, format, { ...opts, replace: Boolean(flags.replace) });
+      console.log(`Imported ${result.memories} memories, ${result.nodes} nodes, ${result.edges} links from ${format} (${result.files} Markdown files)`);
       d.close(); return;
     }
 
@@ -898,8 +1231,8 @@ async function main() {
       return;
     }
 
-    console.log("Usage: cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path> | cm import <bundle.json>");
-    console.log("Options: --dry-run, --replace");
+    console.log("Usage: cm import <source-folder-or-file> | cm import <bundle.json> | cm import --graphify <path> | cm import --claude-mem [--project NAME] | cm import --json <path>");
+    console.log("Options: --dry-run, --replace, --delete-source");
     d.close();
     return;
   }

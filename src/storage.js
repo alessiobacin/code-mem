@@ -48,6 +48,9 @@ function normalizeLegacyEntry(entry) {
 }
 
 function upsertMemoryItem(d, item) {
+  const compactBody = compactMemoryText(item.body);
+  if (!compactBody) return { id: `ignored_${hashText(String(item.body || ""))}`, created: false, ignored: true, reason: "transport_or_model_noise" };
+  item = { ...item, body: compactBody, title: item.title ? compactMemoryText(item.title) : item.title, summary: item.summary ? compactMemoryText(item.summary) : item.summary };
   const createdAt = item.createdAt || nowIso();
   const updatedAt = nowIso();
   const id = item.id || `mem_${slug(item.kind)}_${hashText(`${item.kind}|${item.body}|${item.title}`)}`;
@@ -62,18 +65,21 @@ function upsertMemoryItem(d, item) {
       if (existing.status !== "active") {
         runStmt(
           d,
-          "UPDATE memory_items SET status='active', updated_at=?, summary=COALESCE(summary, ?), confidence=?, salience=? WHERE id=?",
-          [updatedAt, item.summary || null, item.confidence, item.salience, existing.id]
+          "UPDATE memory_items SET status=?, belief_status=?, processing_state=?, updated_at=?, summary=COALESCE(summary, ?), confidence=?, salience=?, importance=COALESCE(importance,?) WHERE id=?",
+          [item.status || "active", item.beliefStatus || (item.status === "candidate" ? "candidate" : "accepted"), item.processingState || "ready", updatedAt, item.summary || null, item.confidence, item.salience, item.importance ?? item.salience ?? DEFAULT_SALIENCE, existing.id]
         );
       }
+      try { updateMemoryFtsRow(d, existing.id); } catch {}
       return { id: existing.id, created: false };
     }
     runStmt(
       d,
       `INSERT INTO memory_items(
         id, kind, layer, title, body, summary, confidence, salience, source, status,
-        created_at, updated_at, last_accessed_at, access_count, valid_from, valid_to, supersedes_id, hash
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        created_at, updated_at, last_accessed_at, access_count, valid_from, valid_to, supersedes_id, hash,
+        source_type, observed_at, occurred_at, last_verified_at, invalidated_at, belief_status,
+        claim_type, scope_key, importance, retrieval_strength, processing_state
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         item.kind,
@@ -93,8 +99,20 @@ function upsertMemoryItem(d, item) {
         item.validTo || null,
         item.supersedesId || null,
         hash,
+        item.sourceType || sourceTypeFor(item.source || "manual"),
+        item.observedAt || createdAt,
+        item.occurredAt || item.observedAt || createdAt,
+        item.lastVerifiedAt || null,
+        item.invalidatedAt || null,
+        item.beliefStatus || (item.status === "candidate" ? "candidate" : item.status === "archived" ? "archived" : "accepted"),
+        item.claimType || claimTypeFor(item.kind, item.body),
+        item.scopeKey || scopeKeyFor(item.cwd || process.cwd(), item.scope || "project"),
+        item.importance ?? item.salience ?? DEFAULT_SALIENCE,
+        item.retrievalStrength ?? 0,
+        item.processingState || "ready",
       ]
     );
+    try { updateMemoryFtsRow(d, id); } catch {}
     runStmt(
       d,
       "INSERT INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
@@ -107,7 +125,9 @@ function upsertMemoryItem(d, item) {
         JSON.stringify(item.tags || []),
       ]
     );
-    // Content-sync FTS5 automatically indexes via source table
+    // Tags live in memory_context, so refresh the standalone derived FTS row
+    // after the context row exists.
+    try { updateMemoryFtsRow(d, id); } catch {}
     return { id, created: true };
   });
 }
@@ -135,15 +155,36 @@ function findNearDuplicate(d, body, kind) {
 }
 
 function saveMemory(d, cwd, input) {
-  const body = String(input.body || "").trim();
+  const rawBody = String(input.body || "").trim();
+  if (isMemoryNoise(rawBody)) return { id: `ignored_${hashText(rawBody)}`, created: false, ignored: true, reason: "transport_or_model_noise" };
+  const body = compactMemoryText(rawBody);
   if (!body) {
     console.log("text required");
     process.exit(1);
   }
+  const inputKind = input.kind || "fact";
+  const isGlobal = input.scope === "global" || input.scopeKey === "global";
+  const memoryCwd = isGlobal ? "" : cwd;
+  const episode = recordMemoryEpisode(d, {
+    cwd: memoryCwd,
+    source: input.source || "manual",
+    sourceType: input.sourceType || sourceTypeFor(input.source || "manual"),
+    sourceRef: input.sourceRef || `save:${hashText(`${inputKind}|${body}|${nowIso()}`)}`,
+    content: body,
+    role: input.role || "user",
+    sessionId: input.sessionId || captureSessionId(cwd),
+    observedAt: input.observedAt || nowIso(),
+    occurredAt: input.occurredAt,
+    scope: isGlobal ? "global" : "project",
+    metadata: { explicit: true, taskKind: input.taskKind || "" },
+    gate: { decision: "CREATE_MEMORY", reason: "explicit_save", confidence: 1, kind: inputKind },
+    processingState: "processed",
+  });
   // Fuzzy dedup unless --force
   if (!input.force) {
     const dup = findNearDuplicate(d, body, input.kind);
     if (dup) {
+      if (episode?.id) recordMemoryEvidence(d, { memoryId: dup.id, episodeId: episode.id, relation: "duplicates", reliability: 0.8, observedAt: episode.observed_at });
       return { id: dup.id, created: false, duplicate: true, existing: dup };
     }
   }
@@ -152,22 +193,34 @@ function saveMemory(d, cwd, input) {
   // a concurrent writer or a crash between the two can no longer produce a
   // duplicate that slipped past the fuzzy check, or a half-written memory.
   const row = withTransaction(d, () => upsertMemoryItem(d, {
-    kind: input.kind || "fact",
+    kind: inputKind,
     layer: input.layer || "semantic",
     title,
     body,
     summary: input.summary || summarize(body),
     confidence: clamp01(input.confidence, DEFAULT_CONFIDENCE),
     salience: clamp01(input.salience, DEFAULT_SALIENCE),
-    source: input.source || "manual",
-    cwd,
-    gitBranch: getGitBranch(cwd),
+    sourceType: input.sourceType || sourceTypeFor(input.source || "manual"),
+    scopeKey: input.scopeKey || scopeKeyFor(memoryCwd, isGlobal ? "global" : "project"),
+    observedAt: input.observedAt || episode?.observed_at || nowIso(),
+    occurredAt: input.occurredAt || input.observedAt || episode?.observed_at || nowIso(),
+    claimType: input.claimType || claimTypeFor(inputKind, body),
+    importance: clamp01(input.importance, input.salience ?? DEFAULT_SALIENCE),
+    beliefStatus: input.beliefStatus || (input.status === "candidate" ? "candidate" : "accepted"),
+    processingState: input.processingState || "ready",
+    status: input.status || "active",
+    supersedesId: input.supersedesId || null,
+    validFrom: input.validFrom || null,
+    validTo: input.validTo || null,
+    cwd: memoryCwd,
+    gitBranch: isGlobal ? "" : getGitBranch(cwd),
     agent: input.agent || inferAgent(),
     taskKind: input.taskKind || "",
     files: input.files || [],
     tags: input.tags || [],
     sessionId: input.sessionId || "",
   }));
+  if (row?.id && episode?.id) recordMemoryEvidence(d, { memoryId: row.id, episodeId: episode.id, relation: input.supersedesId ? "supersedes" : "supports", reliability: input.source === "scan" ? 0.7 : 0.9, observedAt: episode.observed_at });
   refreshProjections(d, cwd);
   return row;
 }
@@ -191,7 +244,7 @@ function applyCorrectionStatus(d, body) {
     const titleLow = String(row.title || "").trim().toLowerCase();
     const hits = (bodyLow && c.ref.toLowerCase().includes(bodyLow)) || (titleLow && c.ref.toLowerCase().includes(titleLow));
     if (!hits) continue;
-    runStmt(d, "UPDATE memory_items SET status=?, corrected_by=?, updated_at=? WHERE id=?", [c.status, inferAgent(), nowIso(), row.id]);
+    runStmt(d, "UPDATE memory_items SET status=?, belief_status=?, invalidated_at=?, corrected_by=?, updated_at=? WHERE id=?", [c.status, c.status, nowIso(), inferAgent(), nowIso(), row.id]);
     updateFtsRow(d, row);
     marked += 1;
   }
@@ -201,7 +254,9 @@ function applyCorrectionStatus(d, body) {
 function saveMemorySemanticDedup(d, cwd, input) {
   // Full semantic dedup via embedding + cosine similarity
   // Used by save commands; triggers embedding if not already stored
-  const body = String(input.body || "").trim();
+  const rawBody = String(input.body || "").trim();
+  if (isMemoryNoise(rawBody)) return { id: `ignored_${hashText(rawBody)}`, created: false, ignored: true, reason: "transport_or_model_noise" };
+  const body = compactMemoryText(rawBody);
   if (!body) throw new Error("text required");
   // Correction lifecycle: a "contested:/corrected:/obsolete:" save names and
   // transitions a prior memory. The correction persists as a status change on
@@ -220,7 +275,7 @@ function saveMemorySemanticDedup(d, cwd, input) {
   // closed by the caller first), so the trigram vector is the deterministic
   // guarantee.
   const result = withTransaction(d, () => {
-    const saved = saveMemory(d, cwd, input);
+    const saved = saveMemory(d, cwd, { ...input, body });
     const text = `${saved.title || ""} ${body} ${input.summary || ""}`.trim();
     saveTrigramVector(d, saved.id, text);
     return saved;
@@ -234,11 +289,13 @@ function saveMemorySemanticDedup(d, cwd, input) {
 }
 
 function saveMemoryToStore(d, cwd, input) {
-  const body = String(input.body || "").trim();
+  const body = compactMemoryText(input.body);
   if (!body) {
     console.log("text required");
     process.exit(1);
   }
+  const isGlobal = input.scope === "global" || input.scopeKey === "global";
+  const memoryCwd = isGlobal ? "" : cwd;
   const title = String(input.title || projectTitle(body)).trim();
   return upsertMemoryItem(d, {
     kind: input.kind || "fact",
@@ -248,9 +305,19 @@ function saveMemoryToStore(d, cwd, input) {
     summary: input.summary || summarize(body),
     confidence: clamp01(input.confidence, DEFAULT_CONFIDENCE),
     salience: clamp01(input.salience, DEFAULT_SALIENCE),
+    importance: clamp01(input.importance, input.salience ?? DEFAULT_SALIENCE),
     source: input.source || "manual",
-    cwd,
-    gitBranch: input.gitBranch || getGitBranch(cwd),
+    sourceType: input.sourceType || sourceTypeFor(input.source || "manual"),
+    scopeKey: input.scopeKey || scopeKeyFor(memoryCwd, isGlobal ? "global" : "project"),
+    observedAt: input.observedAt,
+    occurredAt: input.occurredAt,
+    lastVerifiedAt: input.lastVerifiedAt,
+    invalidatedAt: input.invalidatedAt,
+    beliefStatus: input.beliefStatus,
+    claimType: input.claimType || claimTypeFor(input.kind || "fact", input.body || ""),
+    processingState: input.processingState,
+    cwd: memoryCwd,
+    gitBranch: isGlobal ? "" : (input.gitBranch || getGitBranch(cwd)),
     agent: input.agent || inferAgent(),
     taskKind: input.taskKind || "",
     files: input.files || [],
@@ -310,8 +377,7 @@ function renderMemorySnapshot(title, rows) {
 }
 
 function updateFtsRow(d, row) {
-  // Content-sync FTS: delete old index entry, rebuild will pick up new content
-  try { runStmt(d, "INSERT INTO memory_fts(memory_fts,rowid) VALUES('delete',(SELECT rowid FROM memory_items WHERE id=?))", [row.id]); } catch {}
+  try { updateMemoryFtsRow(d, row?.id); } catch {}
 }
 
 function refreshProjections(d, cwd, compact) {
@@ -426,7 +492,18 @@ function serializeMemoryRow(row) {
     confidence: row.confidence,
     salience: row.salience,
     source: row.source,
+    sourceType: row.source_type || sourceTypeFor(row.source),
     status: row.status,
+    beliefStatus: row.belief_status || row.status,
+    claimType: row.claim_type || claimTypeFor(row.kind, row.body),
+    scope: row.scope_key === "global" ? "global" : "project",
+    scopeKey: row.scope_key || "",
+    importance: row.importance ?? row.salience,
+    retrievalStrength: row.retrieval_strength ?? 0,
+    observedAt: row.observed_at || row.created_at,
+    occurredAt: row.occurred_at || row.observed_at || row.created_at,
+    lastVerifiedAt: row.last_verified_at || null,
+    invalidatedAt: row.invalidated_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastAccessedAt: row.last_accessed_at,
@@ -498,12 +575,16 @@ function mergeMemoryItem(d, cwd, item) {
   const incoming = String(item.updatedAt || "");
   const current = String(existing.updated_at || "");
   if (incoming > current) {
+    const isGlobal = item.scope === "global" || item.scopeKey === "global";
+    const memoryCwd = isGlobal ? "" : cwd;
     runStmt(
       d,
-      "UPDATE memory_items SET kind=?,layer=?,title=?,body=?,summary=?,confidence=?,salience=?,source=?,status=?,valid_from=?,valid_to=?,supersedes_id=?,updated_at=? WHERE id=?",
+      "UPDATE memory_items SET kind=?,layer=?,title=?,body=?,summary=?,confidence=?,salience=?,source=?,source_type=?,status=?,belief_status=?,claim_type=?,scope_key=?,importance=?,retrieval_strength=?,observed_at=?,occurred_at=?,valid_from=?,valid_to=?,supersedes_id=?,updated_at=? WHERE id=?",
       [
         item.kind, item.layer, item.title, item.body, item.summary || null,
-        item.confidence, item.salience, item.source || "manual", item.status || "active",
+        item.confidence, item.salience, item.source || "manual", item.sourceType || sourceTypeFor(item.source || "manual"), item.status || "active",
+        item.beliefStatus || item.status || "accepted", item.claimType || claimTypeFor(item.kind, item.body), item.scopeKey || scopeKeyFor(memoryCwd, isGlobal ? "global" : "project"), item.importance ?? item.salience ?? DEFAULT_SALIENCE, item.retrievalStrength ?? 0,
+        item.observedAt || item.createdAt || incoming || nowIso(), item.occurredAt || item.observedAt || item.createdAt || incoming || nowIso(),
         item.validFrom || null, item.validTo || null, item.supersedesId || null,
         incoming || nowIso(), item.id,
       ]
@@ -511,7 +592,7 @@ function mergeMemoryItem(d, cwd, item) {
     runStmt(
       d,
       "INSERT OR REPLACE INTO memory_context(memory_id,cwd,git_branch,task_kind,files_json,tags_json) VALUES(?,?,?,?,?,?)",
-      [item.id, item.cwd || "", item.gitBranch || "", item.taskKind || "", JSON.stringify(item.files || []), JSON.stringify(item.tags || [])]
+      [item.id, memoryCwd, isGlobal ? "" : (item.gitBranch || ""), item.taskKind || "", JSON.stringify(item.files || []), JSON.stringify(item.tags || [])]
     );
     const updated = loadMemoryRow(d, item.id);
     updateFtsRow(d, updated);
@@ -551,6 +632,12 @@ function cmdStats(d, cwd) {
   const value = Math.round(memories + recalls * 2 + timeSavedMin);
   console.log(`cm stats`);
   console.log(`memories: ${memories}`);
+  const episodes = Number(getStmt(d, "SELECT COUNT(*) AS c FROM memory_episodes")?.c || 0);
+  const candidates = Number(getStmt(d, "SELECT COUNT(*) AS c FROM memory_items WHERE status='candidate'")?.c || 0);
+  const pendingVerification = Number(getStmt(d, "SELECT COUNT(*) AS c FROM verification_queue WHERE status='pending'")?.c || 0);
+  console.log(`episodes: ${episodes}`);
+  console.log(`candidates: ${candidates}`);
+  console.log(`verification queue: ${pendingVerification}`);
   console.log(`recalls (actions conserved): ${recalls}`);
   console.log(`time saved estimate: ${timeSavedMin} min`);
   console.log(`value: ${value}`);
@@ -579,7 +666,7 @@ function restoreGlobalMemories(d, cwd, filePath) {
   }
   let imported = 0;
   for (const item of payload.items) {
-    const result = saveMemoryToStore(d, item.cwd || cwd, item);
+    const result = saveMemoryToStore(d, item.scope === "global" || item.scopeKey === "global" ? "" : (item.cwd || cwd), { ...item, scope: "global", scopeKey: "global" });
     if (result.created) imported += 1;
   }
   return { resolved, imported, total: payload.items.length };
@@ -592,4 +679,3 @@ function saveGlobalSnapshot(d, id) {
   wr(out, renderMemorySnapshot("Global Memory", stored ? [stored] : []));
   return out;
 }
-

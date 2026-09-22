@@ -5,7 +5,12 @@ function od(p) {
   }
   mkdirSync(dirname(p), { recursive: true });
   const d = new DB(p);
-  d.exec("PRAGMA page_size=512; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL");
+  // Hooks can launch a deep graph refresh while a user command consolidates
+  // the same project. Wait for the short writer transaction instead of
+  // failing with SQLITE_BUSY; the explicit graph-refresh lock coordinates the
+  // normal path, while busy_timeout covers unavoidable process scheduling
+  // races.
+  d.exec("PRAGMA page_size=512; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000");
   d.exec(`
     CREATE TABLE IF NOT EXISTS messages(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,6 +62,10 @@ function od(p) {
       PRIMARY KEY (source_id,target_id,relation)
     );
   `);
+  try { d.exec(`CREATE TABLE IF NOT EXISTS cm_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`); } catch {}
+  ensureMigrationColumns(d);
+  ensureCognitiveTables(d);
+  ensureGlobalStoreScope(d, p);
   ensureMemorySearchTable(d);
   d.exec(`
     CREATE TABLE IF NOT EXISTS memory_vectors(
@@ -66,14 +75,32 @@ function od(p) {
       created_at TEXT NOT NULL
     );
   `);
+  // Dual-vector contract: trigram vectors live in memory_vectors (always
+  // present, deterministic), Ollama semantic vectors live here (upgrade when
+  // reachable). Never mix spaces in one cosine comparison.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS memory_ollama_vectors(
+      memory_id TEXT PRIMARY KEY REFERENCES memory_items(id) ON DELETE CASCADE,
+      vector BLOB NOT NULL,
+      model TEXT NOT NULL DEFAULT '${EMBED_MODEL}',
+      created_at TEXT NOT NULL
+    );
+  `);
   ensureGraphTables(d);
   ensureMessagesSearchTables(d);
-  try {
-    d.exec(`CREATE TABLE IF NOT EXISTS cm_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
-  } catch {}
-  ensureMigrationColumns(d);
   ensureRecallIndexes(d);
   return d;
+}
+
+function ensureGlobalStoreScope(d, dbPath) {
+  // Before scope_key was explicit, global rows could inherit the cwd from the
+  // project that created them. The global database is an unambiguous boundary:
+  // normalize every legacy row to global scope and remove project affinity.
+  try {
+    if (canonicalPath(dbPath) !== canonicalPath(globalDbPath())) return;
+    runStmt(d, "UPDATE memory_items SET scope_key='global' WHERE scope_key IS NULL OR scope_key=''", []);
+    runStmt(d, "UPDATE memory_context SET cwd='',git_branch='' WHERE memory_id IN (SELECT id FROM memory_items WHERE scope_key='global')", []);
+  } catch {}
 }
 
 function ensureMigrationColumns(d) {
@@ -134,17 +161,47 @@ function ensureMessagesSearchTables(d) {
 }
 
 function ensureMemorySearchTable(d) {
-  // Content-sync FTS5: references memory_items without duplicating content text
+  // Standalone FTS5 is deliberate here. The former content-sync table named
+  // `tags` although memory_items has no such column, so every MATCH could
+  // fail and silently fall back to LIKE. Tags live in memory_context and are
+  // copied into this derived index on insert/update.
+  let schema = "";
+  try { schema = String(getStmt(d, "SELECT sql FROM sqlite_master WHERE name='memory_fts'")?.sql || ""); } catch {}
+  // Legacy installations used both `content=memory_items` and quoted
+  // `content='memory_items'`; some SQLite builds materialize a contentless
+  // FTS table as `content=''`. Both forms cannot accept ordinary DELETEs,
+  // while the cognitive/retrieval path intentionally updates rows directly.
+  if (schema && /content\s*=\s*(?:['"]?memory_items['"]?|['"]{2})/i.test(schema)) {
+    for (const trigger of ["memory_fts_ai", "memory_fts_au", "memory_fts_ad", "memory_fts_bd"]) {
+      try { d.exec(`DROP TRIGGER IF EXISTS ${trigger}`); } catch {}
+    }
+    try { d.exec("DROP TABLE IF EXISTS memory_fts"); } catch {}
+  }
   try {
     d.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      id UNINDEXED, title, body, summary, tags, kind,
-      content=memory_items, content_rowid=_rowid_
+      id UNINDEXED, title, body, summary, kind, tags
     )`);
-    d.exec(`CREATE TRIGGER IF NOT EXISTS memory_fts_bd BEFORE DELETE ON memory_items BEGIN
-      INSERT INTO memory_fts(memory_fts,rowid,id,title,body,summary,tags,kind) VALUES('delete',old.rowid,old.id,old.title,old.body,old.summary,'','');
+    for (const trigger of ["memory_fts_ai", "memory_fts_au", "memory_fts_ad", "memory_fts_bd"]) {
+      try { d.exec(`DROP TRIGGER IF EXISTS ${trigger}`); } catch {}
+    }
+    d.exec(`CREATE TRIGGER memory_fts_ai AFTER INSERT ON memory_items BEGIN
+      INSERT INTO memory_fts(rowid,id,title,body,summary,kind,tags)
+      VALUES(new.rowid,new.id,new.title,new.body,COALESCE(new.summary,''),new.kind,'[]');
     END`);
-    // Rebuild index for existing content
-    try { d.exec("INSERT INTO memory_fts(memory_fts) VALUES('rebuild')"); } catch {}
+    d.exec(`CREATE TRIGGER memory_fts_au AFTER UPDATE ON memory_items BEGIN
+      DELETE FROM memory_fts WHERE rowid=old.rowid;
+      INSERT INTO memory_fts(rowid,id,title,body,summary,kind,tags)
+      VALUES(new.rowid,new.id,new.title,new.body,COALESCE(new.summary,''),new.kind,'[]');
+    END`);
+    d.exec(`CREATE TRIGGER memory_fts_ad AFTER DELETE ON memory_items BEGIN
+      DELETE FROM memory_fts WHERE rowid=old.rowid;
+    END`);
+    try {
+      d.exec("DELETE FROM memory_fts");
+      d.exec(`INSERT INTO memory_fts(rowid,id,title,body,summary,kind,tags)
+        SELECT mi.rowid,mi.id,mi.title,mi.body,COALESCE(mi.summary,''),mi.kind,COALESCE(mc.tags_json,'[]')
+        FROM memory_items mi LEFT JOIN memory_context mc ON mc.memory_id=mi.id`);
+    } catch {}
   } catch {
     try { d.exec("CREATE TABLE IF NOT EXISTS memory_fts(id TEXT PRIMARY KEY,title TEXT,body TEXT,summary TEXT,tags TEXT,kind TEXT)"); } catch {}
   }
@@ -182,6 +239,8 @@ function ensureRecallIndexes(d) {
   // Performance indexes for recall queries
   const indexes = [
     "CREATE INDEX IF NOT EXISTS idx_memory_items_status_kind ON memory_items(status, kind)",
+    "CREATE INDEX IF NOT EXISTS idx_memory_items_belief_status ON memory_items(belief_status, status)",
+    "CREATE INDEX IF NOT EXISTS idx_memory_items_validity ON memory_items(valid_from, valid_to)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_status_updated ON memory_items(status, updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_kind_layer ON memory_items(kind, layer)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_hash ON memory_items(hash)",
@@ -230,4 +289,3 @@ function allStmt(d, sql, params = []) {
 function getStmt(d, sql, params = []) {
   return d.prepare(sql).get(...params);
 }
-

@@ -34,6 +34,16 @@ chmod +x "$BINDIR/cm"
 
 echo "  ✅ CLI installed at $BINDIR/cm"
 
+# One per-user graph service serves every registered project. It binds only to
+# loopback and keeps project memory/harness execution isolated by project token.
+# Keep installation non-fatal on older systems without launchd/systemd user
+# support; `cm service start` remains available as an explicit fallback.
+if "$BINDIR/cm" service install --global; then
+  echo "  ✅ Global local graph service installed"
+else
+  echo "  ℹ️  Global graph service could not auto-start; run: cm service install"
+fi
+
 # Install skill for each harness
 SKILL_URL="https://raw.githubusercontent.com/alessiobacin/code-mem/main/skill/SKILL.md"
 INSTALLED=0

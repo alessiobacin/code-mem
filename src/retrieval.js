@@ -22,6 +22,9 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   const ageHours = row.updated_at ? Math.max(1, (Date.now() - Date.parse(row.updated_at)) / 3600000) : 999;
   const recencyScore = Math.max(0, 1 - ageHours / (24 * 30));
   const accessScore = Math.min(1, (row.access_count || 0) / 8);
+  const confidenceScore = clamp01(row.confidence, DEFAULT_CONFIDENCE);
+  const importanceScore = clamp01(row.importance, clamp01(row.salience, DEFAULT_SALIENCE));
+  const retrievalStrengthScore = clamp01(row.retrieval_strength, Math.min(1, (row.access_count || 0) / 8));
   const graphDb = plan.dbByScope?.[row._scope || "project"] || plan.db;
   const graphScore = countLinksForMemory(graphDb, row.id);
   const scopeKey = `${row._scope || "project"}:${row.id}`;
@@ -35,11 +38,13 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
     score =
       0.55 * semanticScore +
       0.1 * recencyScore +
-      0.05 * graphScore +
+      0.04 * graphScore +
       0.1 * conceptScore +
       0.05 * graphConceptScore +
       0.1 * sourceScore +
-      0.05 * linkDistanceScore;
+      0.04 * linkDistanceScore +
+      0.04 * confidenceScore +
+      0.04 * importanceScore;
   } else if (mode === "hybrid" && hasSemantic) {
     if (semanticDriven) {
       score =
@@ -47,11 +52,13 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
         0.15 * recencyScore +
         0.1 * accessScore +
         0.05 * contextScore +
-        0.05 * graphScore +
+        0.04 * graphScore +
         0.15 * curationScore +
-        0.05 * graphScore +
         0.1 * sourceScore +
-        0.05 * linkDistanceScore;
+        0.04 * linkDistanceScore +
+        0.06 * confidenceScore +
+        0.06 * importanceScore +
+        0.04 * retrievalStrengthScore;
     } else {
       score =
         0.10 * keywordScore +
@@ -64,7 +71,10 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
         0.08 * graphConceptScore +
         0.10 * semanticScore +
         0.03 * sourceScore +
-        0.02 * linkDistanceScore;
+        0.02 * linkDistanceScore +
+        0.04 * confidenceScore +
+        0.04 * importanceScore +
+        0.03 * retrievalStrengthScore;
     }
   } else {
     score =
@@ -77,7 +87,10 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
       0.1 * conceptScore +
       0.05 * graphConceptScore +
       0.03 * sourceScore +
-      0.02 * linkDistanceScore;
+      0.02 * linkDistanceScore +
+      0.04 * confidenceScore +
+      0.04 * importanceScore +
+      0.03 * retrievalStrengthScore;
   }
   return {
     score,
@@ -95,6 +108,9 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
     kindPriorityScore,
     graphScore,
     semanticScore,
+    confidenceScore,
+    importanceScore,
+    retrievalStrengthScore,
   };
 }
 
@@ -218,19 +234,34 @@ function uniqueRowsById(rows) {
   return out;
 }
 
-function loadCandidateRows(d, words, scope, limit) {
+function rowIsRetrievable(row, asOf = null) {
+  if (!row || row.status === "archived") return false;
+  const belief = row.belief_status || (row.status === "active" ? "accepted" : row.status);
+  if (!asOf && (row.status !== "active" || ["candidate", "contested", "corrected", "obsolete", "superseded", "invalidated", "archived"].includes(belief))) return false;
+  if (asOf) {
+    const t = Date.parse(asOf);
+    if (!Number.isNaN(t)) {
+      const from = row.valid_from ? Date.parse(row.valid_from) : Number.NEGATIVE_INFINITY;
+      const to = row.valid_to ? Date.parse(row.valid_to) : Number.POSITIVE_INFINITY;
+      if (t < from || t >= to) return false;
+    }
+  }
+  return true;
+}
+
+function loadCandidateRows(d, words, scope, limit, asOf = null) {
   const ids = queryMemoryCandidates(d, words, limit);
   const effectiveLimit = Math.max(limit, 40);
   let candidates = [];
   if (ids.length) {
     const placeholders = ids.map(() => '?').join(',');
-    candidates = listMemoryRows(d, `WHERE mi.id IN (${placeholders})`, ids, "").map((row) => ({ ...row, _scope: scope }));
+    candidates = listMemoryRows(d, `WHERE mi.id IN (${placeholders})`, ids, "").filter((row) => rowIsRetrievable(row, asOf)).map((row) => ({ ...row, _scope: scope }));
   }
   const candidateIds = new Set(candidates.map(r => r.id));
   const fallbackRows = listMemoryRows(
     d, "WHERE mi.status='active'", [],
     `ORDER BY mi.updated_at DESC LIMIT ${effectiveLimit}`
-  ).filter(r => !candidateIds.has(r.id)).map((row) => ({ ...row, _scope: scope }));
+  ).filter((r) => !candidateIds.has(r.id) && rowIsRetrievable(r, asOf)).map((row) => ({ ...row, _scope: scope }));
   return uniqueRowsById(candidates.concat(fallbackRows)).slice(0, effectiveLimit);
 }
 
@@ -278,12 +309,23 @@ function scoreConceptCoverage(row, terms) {
   return matches / terms.length;
 }
 
-function loadRowsByIds(d, ids, scope) {
+function loadRowsByIds(d, ids, scope, asOf = null) {
   if (!ids.length) return [];
   const idList = ids.filter(Boolean);
   if (!idList.length) return [];
   const placeholders = idList.map(() => '?').join(',');
-  return listMemoryRows(d, `WHERE mi.id IN (${placeholders})`, idList, "").map((row) => ({ ...row, _scope: scope }));
+  return listMemoryRows(d, `WHERE mi.id IN (${placeholders})`, idList, "").filter((row) => rowIsRetrievable(row, asOf)).map((row) => ({ ...row, _scope: scope }));
+}
+
+function loadGlobalPreferenceRows(d, limit = 24, asOf = null) {
+  return listMemoryRows(
+    d,
+    "WHERE mi.status='active' AND mi.kind='preference' AND mi.scope_key='global'",
+    [],
+    `ORDER BY mi.importance DESC, mi.updated_at DESC LIMIT ${Math.max(1, limit)}`
+  )
+    .filter((row) => rowIsRetrievable(row, asOf))
+    .map((row) => ({ ...row, _scope: "global", _globalPreference: true }));
 }
 
 function expandLinkedCandidateMap(d, seedIds, maxDepth = 2, maxTotal = 48) {
@@ -341,6 +383,8 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
   plan.db = d;
   plan.mode = mode || "hybrid";
   plan.explain = Boolean(options.explain);
+  plan.scope = options.scope || "auto";
+  plan.asOf = options.asOf || null;
   const queryWords = tokenizeQuery(task);
   const isExplore = mode === "explore";
   // Explore mode: expand graph terms more aggressively
@@ -351,15 +395,22 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
   const linkDepth = isExplore ? 3 : (level <= 1 ? 2 : 2);
   const linkMax = isExplore ? 80 : 48;
   const projectLinkMap = exploreDepth <= 1 ? new Map() : expandLinkedCandidateMap(d, projectSeedIds, linkDepth, linkMax);
-  const projectRows = uniqueRowsById(
-    loadRowsByIds(d, Array.from(projectLinkMap.keys()), "project")
-      .concat(loadCandidateRows(d, queryWords.concat(projectGraphTerms), "project", 80))
+  const projectRows = plan.scope === "global" ? [] : uniqueRowsById(
+    loadRowsByIds(d, Array.from(projectLinkMap.keys()), "project", plan.asOf)
+      .concat(loadCandidateRows(d, queryWords.concat(projectGraphTerms), "project", 80, plan.asOf))
+      .concat(workingMemoryRows(d, cwd, task, 24).filter((row) => rowIsRetrievable(row, plan.asOf)).map((row) => ({ ...row, _scope: "project" })))
   );
-  // Always open global DB in explore mode for broader reach
+  // Default/auto recall may use the global store; project-only diagnostics do
+  // not. The global store is opened once and closed after scoring.
   let globalDb = null;
   let globalRows = [];
   let globalLinkMap = new Map();
-  if (projectRows.length < limit || isExplore) {
+  // Global preferences are user-level policy, not project facts. They are
+  // deliberately injected into the default project context so an agent can
+  // remember how the user generally works without changing the current
+  // repository's detected stack. `--scope project` remains an explicit,
+  // project-only diagnostic mode.
+  if (plan.scope !== "project") {
     globalDb = od(globalDbPath());
     const globalGraphTerms = exploreDepth <= 1 ? [] : expandGraphTerms(globalDb, queryWords);
     const mergedTerms = Array.from(new Set(projectGraphTerms.concat(globalGraphTerms))).slice(0, 20);
@@ -367,40 +418,64 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
     const globalSeedIds = queryMemoryCandidates(globalDb, queryWords.concat(globalGraphTerms), 32);
     globalLinkMap = exploreDepth <= 1 ? new Map() : expandLinkedCandidateMap(globalDb, globalSeedIds, linkDepth, linkMax);
     globalRows = uniqueRowsById(
-      loadRowsByIds(globalDb, Array.from(globalLinkMap.keys()), "global")
-        .concat(loadCandidateRows(globalDb, queryWords.concat(globalGraphTerms), "global", 80))
-    );
+      loadRowsByIds(globalDb, Array.from(globalLinkMap.keys()), "global", plan.asOf)
+        .concat(loadCandidateRows(globalDb, queryWords.concat(globalGraphTerms), "global", 80, plan.asOf))
+        .concat(loadGlobalPreferenceRows(globalDb, 24, plan.asOf))
+    ).map((row) => row.kind === "preference" && row.scope_key === "global"
+      ? { ...row, _globalPreference: true }
+      : row);
   }
   plan.dbByScope = { project: d, global: globalDb || d };
   plan.linkExpansion = {};
   for (const [id, info] of projectLinkMap.entries()) plan.linkExpansion[`project:${id}`] = info;
   for (const [id, info] of globalLinkMap.entries()) plan.linkExpansion[`global:${id}`] = info;
-  const rows = uniqueRowsById(projectRows.concat(globalRows));
+  const rows = uniqueRowsById(projectRows.concat(globalRows)).filter((row) => rowIsRetrievable(row, plan.asOf));
   const useSemantic = plan.mode !== "keyword" && task && task.trim().length > 0;
   let taskEmbedding = null;
+  let taskEmbeddingSpace = "trigram";
   if (useSemantic) {
-    if (level > 2 && checkOllama() && !isExplore) {
-      taskEmbedding = await computeEmbedding(task).catch(() => trigramEmbed(task));
+    // Ollama embeddings whenever reachable (any level): synonym-level
+    // semantics. Trigram stays the deterministic fallback, never a blocker.
+    if (checkOllama() && !isExplore) {
+      const ollamaVec = await computeEmbedding(task).catch(() => null);
+      if (ollamaVec) { taskEmbedding = ollamaVec; taskEmbeddingSpace = "ollama"; }
+      else taskEmbedding = trigramEmbed(task);
     } else {
       taskEmbedding = trigramEmbed(task);
     }
   }
   const ranked = [];
+  // Dual-vector contract: cosine only within one space. When Ollama is up
+  // the task embedding is semantic and rows score from their stored Ollama
+  // vector; rows without one yet skip semantic (upgrade via consolidate).
+  // When Ollama is down everything scores in trigram space (stored or
+  // computed on the fly — same space, always comparable).
+  const taskSpace = taskEmbeddingSpace || "trigram";
   for (const row of rows) {
     let semanticScore;
     if (taskEmbedding) {
       const storeDb = plan.dbByScope[row._scope || "project"] || d;
-      const vecRow = getStmt(storeDb, "SELECT vector, model FROM memory_vectors WHERE memory_id = ?", [row.id]);
-      if (vecRow) {
-        const sv = bufferToVector(vecRow.vector);
-        semanticScore = cosineSimilarity(taskEmbedding, sv);
+      if (taskSpace === "ollama") {
+        const memBuf = getOllamaVector(storeDb, row.id);
+        if (memBuf) semanticScore = cosineSimilarity(taskEmbedding, bufferToVector(memBuf));
       } else {
-        const text = `${row.title} ${row.body} ${row.summary || ""}`;
-        const memVec = trigramEmbed(text);
-        semanticScore = cosineSimilarity(taskEmbedding, memVec);
+        const vecRow = getStmt(storeDb, "SELECT vector FROM memory_vectors WHERE memory_id = ?", [row.id]);
+        if (vecRow) {
+          semanticScore = cosineSimilarity(taskEmbedding, bufferToVector(vecRow.vector));
+        } else {
+          const text = `${row.title} ${row.body} ${row.summary || ""}`;
+          semanticScore = cosineSimilarity(taskEmbedding, trigramEmbed(text));
+        }
       }
     }
     const scores = scoreMemory(row, plan, task, cwd, level, semanticScore);
+    if (row._globalPreference) {
+      // Keep a small, bounded preference slice in every normal context even
+      // when the task is unrelated to the preference wording.
+      scores.score = Math.max(scores.score, 0.18 + (Number(row.importance) || 0) * 0.12);
+      scores.globalPreference = true;
+    }
+    if (plan.asOf) scores.score *= 0.98;
     const linkMap = row._scope === "global" ? globalLinkMap : projectLinkMap;
     const linkPath = materializeLinkPath(linkMap, row.id);
     // Explore mode: boost graph link proximity and concept coverage
@@ -412,28 +487,56 @@ async function recallMemories(d, cwd, task, level, limit, mode, options = {}) {
     }
     ranked.push({ row, ...scores });
     ranked[ranked.length - 1].linkPath = linkPath;
+    ranked[ranked.length - 1].evidence = memoryEvidenceFor(plan.dbByScope[row._scope || "project"] || d, row.id, 3);
   }
-  const filtered = ranked
+  const rankedByScore = ranked
     .filter((entry) => entry.score > 0.05)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
+  const injectedPreferences = rankedByScore.filter((entry) => entry.row._globalPreference).slice(0, Math.min(4, limit));
+  const selected = injectedPreferences.concat(rankedByScore.filter((entry) => !entry.row._globalPreference));
+  const seenSelected = new Set();
+  const filtered = selected.filter((entry) => {
+    const key = `${entry.row._scope || "project"}:${entry.row.id}`;
+    if (seenSelected.has(key)) return false;
+    seenSelected.add(key);
+    return true;
+  }).slice(0, limit);
   const timestamp = nowIso();
   for (const entry of filtered) {
     const storeDb = plan.dbByScope[entry.row._scope || "project"] || d;
     runStmt(
       storeDb,
-      "UPDATE memory_items SET last_accessed_at=?, access_count=COALESCE(access_count,0)+1 WHERE id=?",
+      "UPDATE memory_items SET last_accessed_at=?, access_count=COALESCE(access_count,0)+1, retrieval_strength=MIN(1,COALESCE(retrieval_strength,0)+0.03) WHERE id=?",
       [timestamp, entry.row.id]
     );
+    if (!plan.asOf && entry.row._scope === "project") {
+      upsertWorkingMemory(d, cwd, task, entry.row, entry.score, {
+        mode: plan.mode,
+        keyword: entry.keywordScore,
+        semantic: entry.semanticScore,
+        confidence: entry.confidenceScore,
+      });
+    }
   }
   if (globalDb) globalDb.close();
-  return { plan, ranked: filtered };
+  // Noise gate: when the best non-preference result shares zero ground
+  // with the query on every lexical axis (keyword + concept + graph
+  // expansion), downstream agents get an explicit low-confidence signal
+  // instead of silent noise. Deliberately excludes the dense axis:
+  // embeddings score ~0.4 even on unrelated text, so semantics cannot
+  // serve as a noise detector. Graph expansion counts — a paraphrase the
+  // graph supports is a legit match, not noise.
+  const bestFactual = filtered.find((entry) => !entry.row._globalPreference);
+  const factualMatch = bestFactual ? Math.max(bestFactual.keywordScore || 0, bestFactual.conceptScore || 0, bestFactual.graphConceptScore || 0) : 0;
+  const lowConfidence = !bestFactual || factualMatch < 0.05;
+  return { plan, ranked: filtered, lowConfidence, bestFactualScore: bestFactual ? bestFactual.score : 0 };
 }
 
 function renderRecall(task, level, recalled) {
   const lines = [];
   lines.push(`Task: ${task}`);
   lines.push(`Plan: ${recalled.plan.taskKind} / ${recalled.plan.strategy} / mode=${recalled.plan.mode}`);
+  if (recalled.lowConfidence) lines.push(`Confidence: low (no lexical match) — treat results as context, not answers.`);
   if (recalled.plan.graphTerms?.length) lines.push(`Graph terms: ${recalled.plan.graphTerms.join(", ")}`);
   lines.push(`Level: ${level}`);
   lines.push("");
@@ -447,7 +550,8 @@ function renderRecall(task, level, recalled) {
     const concept = entry.conceptScore !== undefined ? ` concept=${entry.conceptScore.toFixed(2)}` : "";
     const graphConcept = entry.graphConceptScore ? ` graph=${entry.graphConceptScore.toFixed(2)}` : "";
     const scope = row._scope === "global" ? "global" : "project";
-    const prefix = `[${row.id}] [${row.kind}] [${scope}] score=${entry.score.toFixed(2)}${sem}${concept}${graphConcept}`;
+    const scopeLabel = row._globalPreference ? "global-preference" : scope;
+    const prefix = `[${row.id}] [${row.kind}] [${scopeLabel}] score=${entry.score.toFixed(2)}${sem}${concept}${graphConcept}`;
     if (level === 1) {
       lines.push(`${prefix} ${row.title}`);
       continue;
@@ -474,8 +578,12 @@ function renderRecall(task, level, recalled) {
     if (files.length) lines.push(`  Files: ${files.join(", ")}`);
     if (recalled.plan.explain) {
       lines.push(
-        `  Explain: keyword=${entry.keywordScore.toFixed(2)} concept=${entry.conceptScore.toFixed(2)} graphTerms=${entry.graphConceptScore.toFixed(2)} links=${entry.linkDistanceScore.toFixed(2)} recency=${entry.recencyScore.toFixed(2)} source=${entry.sourceScore.toFixed(2)}`
+        `  Explain: keyword=${entry.keywordScore.toFixed(2)} concept=${entry.conceptScore.toFixed(2)} graphTerms=${entry.graphConceptScore.toFixed(2)} links=${entry.linkDistanceScore.toFixed(2)} recency=${entry.recencyScore.toFixed(2)} confidence=${entry.confidenceScore.toFixed(2)} importance=${entry.importanceScore.toFixed(2)} source=${entry.sourceScore.toFixed(2)}`
       );
+      if (row.belief_status || row.valid_from || row.valid_to) {
+        lines.push(`  Belief: status=${row.belief_status || row.status} confidence=${Number(row.confidence || 0).toFixed(2)} valid=${row.valid_from || "?"}..${row.valid_to || "∞"}`);
+      }
+      if (entry.evidence?.length) lines.push(`  Evidence: ${entry.evidence.map((e) => `${e.relation}:${e.episode_id}`).join(", ")}`);
       if (entry.linkPath?.length) {
         lines.push(`  Link Path: ${entry.linkPath.map((step) => `${step.from} -[${step.relation}]-> ${step.to}`).join(" | ")}`);
       }
@@ -483,4 +591,3 @@ function renderRecall(task, level, recalled) {
   }
   return lines.join("\n");
 }
-

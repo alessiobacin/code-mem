@@ -24,6 +24,7 @@ const ORDER = [
   "src/fsutil.js",
   "src/capture.js",
   "src/db.js",        // od() references ensureMessagesSearchTables (db.js)
+  "src/cognitive.js", // evidence, temporal belief lifecycle, gate and working set
   "src/scanner.js",
   "src/embed.js",
   "src/graph.js",
@@ -34,9 +35,15 @@ const ORDER = [
   "src/storage.js",
   "src/retrieval.js",
   "src/context.js",
+  "src/harness.js",      // harness discovery, settings metadata, local skill/command integration
+  "src/llm.js",          // read-only harness-backed semantic bridge
   "src/memory-ops.js",
-  "src/mcp.js",         // cm mcp stdio server  "src/graph-export.js",
+  "src/mcp.js",         // cm mcp stdio server
+  "src/graph-export.js", // graph exports and community operations
   "src/entities.js",
+  "src/workflow.js",    // unified full-repository indexing workflow
+  "src/graph-service.js", // global per-user graph service lifecycle + project registry
+  "src/graph-server.js", // local graph HTML + harness chat bridge
   "src/main.js",      // main() + main().catch
 ];
 

@@ -1,5 +1,11 @@
 node_modules/
 .codex/
+.claude/
+.pi/
+.gemini/
+.opencode/
+.qwen/
+
 graphify-out/
 *.log
 .DS_Store

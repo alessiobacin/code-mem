@@ -180,8 +180,9 @@ function cmdHistory(d, c, args) {
   const kindFilter = flags.kind ? String(flags.kind) : null;
   const entityFilter = flags.entity ? String(flags.entity) : null;
   const limit = Number.parseInt(String(flags.limit || "30"), 10) || 30;
-  const where = ["status='active'"];
-  const params = [];
+  const asOf = flags["as-of"] || flags.asOf || null;
+  const where = [asOf ? validityPredicate("mi", asOf) : currentMemoryPredicate("mi")];
+  const params = asOf ? [asOf, asOf] : [];
   if (kindFilter) { where.push("kind = ?"); params.push(kindFilter); }
   let rows = listMemoryRows(d, `WHERE ${where.join(" AND ")}`, params, " ORDER BY mi.created_at DESC");
   if (entityFilter) {
@@ -216,4 +217,3 @@ function cmdHistory(d, c, args) {
   }
   console.log(lines.join("\n"));
 }
-

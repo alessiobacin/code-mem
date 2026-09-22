@@ -1,7 +1,7 @@
 function parseArgs(parts) {
   const flags = {};
   const rest = [];
-  const booleanFlags = new Set(["force", "daemon", "global", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "claude-mem", "full", "auto", "memory", "clean", "reset"]);
+  const booleanFlags = new Set(["force", "daemon", "foreground", "global", "no-start", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "delete-source", "claude-mem", "full", "auto", "memory", "clean", "reset", "accept-candidates", "accept", "llm", "no-llm", "hook-refresh", "dfs"]);
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
     if (part.startsWith("--")) {
@@ -53,4 +53,3 @@ function makePlan(task, cwd) {
     },
   };
 }
-

@@ -104,12 +104,16 @@ function rg(p, normalizeLegacy = true) {
 
 function wg(p, d) {
   mkdirSync(dirname(p), { recursive: true });
-  // Strip per-node metadata from graph.json to save space; keep only community IDs
+  // Strip per-node metadata from graph.json to save space; keep community IDs
+  // plus source provenance (path + line) so the portable artifact stays
+  // navigable like graphify's `src + loc` nodes (~10 bytes/node).
   const cleaned = { nodes: [], edges: [] };
   if (d.nodes) {
     for (const n of d.nodes) {
       const entry = { id: n.id, label: n.label || n.type || "", type: n.type || "" };
       if (n.metadata && n.metadata.community !== undefined) entry.c = n.metadata.community;
+      if (n.metadata?.source_path) entry.source_path = n.metadata.source_path;
+      if (n.metadata?.source_location) entry.source_location = n.metadata.source_location;
       cleaned.nodes.push(entry);
     }
   }

@@ -1,0 +1,30 @@
+{
+  "benchmark": "codemem-cognitive-capabilities-e2e",
+  "status": "ok",
+  "temp_root": "/var/folders/n1/86crx3px60355s2z86fvvxtm0000gn/T/codemem-capabilities-oPEF7B",
+  "capabilities_demonstrated": [
+    "explicit supersession keeps predecessor + successor",
+    "as-of recall exposes historical truth without contaminating current recall",
+    "capture gate creates reviewable candidate",
+    "episodes/evidence/working-set are queryable audit structures",
+    "contest -> verification queue -> verify is reversible and auditable"
+  ],
+  "outputs": {
+    "current_recall": "Task: What is the current production API provider?\nPlan: deploy / DEEP / mode=keyword\nLevel: 3\n\n[mem_decision_h_3ed43167] [decision] [project] score=0.49 concept=0.50 Production API provider changed to Anthropic on 2025-02-03; region eu...\n  Summary: Production API provider changed to Anthropic on 2025-02-03; region eu-west-1.\n  Body: Production API provider changed to Anthropic on 2025-02-03; region eu-west-1.\n[mem_fact_h_2ac18797] [fact] [project] score=0.32 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot\n",
+    "historical_recall": "Task: What was the production API provider in January 2025?\nPlan: deploy / DEEP / mode=keyword\nLevel: 3\n\n[mem_decision_h_848a394d] [decision] [project] score=0.44 concept=0.38 Production API provider is OpenAI; region eu-west-1.\n  Summary: Production API provider is OpenAI; region eu-west-1.\n  Body: Production API provider is OpenAI; region eu-west-1.\n[mem_fact_h_2ac18797] [fact] [project] score=0.33 concept=0.00 Project snapshot: project\n  Summary: Project: project Tech stack: Dirs:\n  Body: Project: project Tech stack: Dirs:\n  Tags: snapshot\n",
+    "contest": "Contested mem_decision_h_3ed43167; verification queued.\n",
+    "verify": "Verified mem_decision_h_3ed43167.\n"
+  },
+  "database": {
+    "counts": {
+      "episodes": 5,
+      "evidence": 5,
+      "working_set": 5,
+      "candidates": 1,
+      "pending_verification": 0
+    },
+    "audit": "mem_decision_h_3ed43167|active|accepted|2026-09-21T21:18:35.816Z|\nmem_decision_h_848a394d|corrected|superseded||mem_decision_h_3ed43167",
+    "rows": "mem_fact_h_2ac18797|Project: project Tech stack: Dirs:|active|accepted|||\nmem_decision_h_848a394d|Production API provider is OpenAI; region eu-west-1.|corrected|superseded||2026-09-21T21:18:35.216Z|mem_decision_h_3ed43167\nmem_decision_h_3ed43167|Production API provider changed to Anthropic on 2025-02-03; region eu-west-1.|active|accepted|2026-09-21T21:18:35.190Z||mem_decision_h_848a394d\nmem_fact_h_6ae67bbd|Decision: always validate schema before deploy; record failure evidence.|active|accepted|||\ncandidate_episode_h_b4fda57a_25515532|Decision: always validate schema before deploy; record failure evidence.|candidate|candidate|||"
+  },
+  "comparison_boundary": "Graphify graph.json has nodes/edges/traversal; it does not expose these CodeMem belief/evidence/verification contracts as native memory lifecycle operations."
+}

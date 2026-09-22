@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeMem cognitive memory — 3D graph</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --panel:#111a2e; --line:#273553; --text:#edf3ff; --muted:#94a8ca; --accent:#78a9ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; overflow:hidden; background:radial-gradient(circle at 20% 10%,#172647 0,#0b1020 48%,#070b15 100%); color:var(--text); font:14px/1.45 Inter,ui-sans-serif,system-ui,sans-serif; }
+    #app { display:grid; grid-template-columns:minmax(0,1fr) 320px; height:100vh; }
+    #stage { position:relative; min-width:0; }
+    #scene { display:block; width:100%; height:100%; }
+    #labels { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+    .node-label { position:absolute; transform:translate(-50%,-125%); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:3px 7px; border:1px solid color-mix(in srgb,var(--accent) 65%,var(--line)); border-radius:999px; background:rgba(7,11,21,.86); box-shadow:0 3px 12px rgba(0,0,0,.28); color:var(--text); font-size:11px; line-height:1.2; transition:opacity .12s ease; }
+    .node-label::before { content:""; display:inline-block; width:6px; height:6px; margin:0 5px 1px 0; border-radius:50%; background:var(--accent); }
+    .node-label[data-type="episode"] { border-color:#64d9a2; }
+    .node-label[data-type="episode"]::before { background:#64d9a2; }
+    .node-label[data-type="evidence"] { border-color:#f3b562; }
+    .node-label[data-type="evidence"]::before { background:#f3b562; }
+    .node-label[data-type="verification"] { border-color:#ef7d9a; }
+    .node-label[data-type="verification"]::before { background:#ef7d9a; }
+    .node-label[data-type="scope"] { border-color:#b18cff; }
+    .node-label[data-type="scope"]::before { background:#b18cff; }
+    #hud { position:absolute; inset:18px auto auto 18px; max-width:min(560px,calc(100% - 36px)); pointer-events:none; }
+    h1 { margin:0 0 6px; font-size:19px; font-weight:500; letter-spacing:-.02em; }
+    .sub { margin:0; color:var(--muted); }
+    #legend { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:13px; color:var(--muted); font-size:12px; }
+    .legend-item { display:inline-flex; align-items:center; gap:6px; }
+    .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+    #controls-help { position:absolute; left:18px; bottom:18px; width:min(250px,calc(100% - 36px)); padding:10px 12px; border:1px solid color-mix(in srgb,var(--line) 85%,transparent); border-radius:10px; background:rgba(9,14,27,.82); box-shadow:0 8px 24px rgba(0,0,0,.24); color:var(--muted); font-size:11px; pointer-events:none; backdrop-filter:blur(8px); }
+    #controls-help h2 { margin:0 0 7px; color:var(--text); font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+    .gesture { display:grid; grid-template-columns:104px 1fr; gap:4px 8px; align-items:center; }
+    .gesture kbd { display:inline-block; width:max-content; padding:1px 5px; border:1px solid #415276; border-bottom-width:2px; border-radius:4px; background:#111b32; color:var(--text); font:10px ui-monospace,SFMono-Regular,Menlo,monospace; }
+    aside { border-left:1px solid var(--line); background:color-mix(in srgb,var(--panel) 92%,transparent); padding:20px; overflow:auto; }
+    .eyebrow { color:var(--accent); font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+    .control { margin:16px 0; }
+    label { display:block; color:var(--muted); font-size:12px; margin-bottom:6px; }
+    input,select,button { width:100%; border:1px solid var(--line); border-radius:8px; background:#0c1427; color:var(--text); padding:9px 10px; font:inherit; }
+    button { cursor:pointer; }
+    button:hover,button:focus-visible { border-color:var(--accent); outline:2px solid color-mix(in srgb,var(--accent) 35%,transparent); }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    hr { border:0; border-top:1px solid var(--line); margin:18px 0; }
+    #details { color:var(--muted); }
+    #details h2 { color:var(--text); font-size:16px; font-weight:500; margin:0 0 6px; }
+    #details dl { margin:12px 0 0; }
+    #details dt { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin-top:10px; }
+    #details dd { margin:2px 0 0; color:var(--text); overflow-wrap:anywhere; }
+    #details .section-title { margin:18px 0 7px; color:var(--accent); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+    #details .meta-grid { display:grid; grid-template-columns:minmax(0,92px) minmax(0,1fr); gap:6px 8px; margin:0; }
+    #details .meta-key { color:var(--muted); font-size:11px; }
+    #details .meta-value { color:var(--text); overflow-wrap:anywhere; }
+    #details .connection { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:7px 0; border-top:1px solid color-mix(in srgb,var(--line) 70%,transparent); }
+    #details .connection:first-child { border-top:0; }
+    #details .connection-node { color:var(--text); overflow-wrap:anywhere; }
+    #details .connection-relation { color:var(--muted); font-size:11px; text-align:right; }
+    .hint { color:var(--muted); font-size:12px; }
+    @media (max-width:760px) { #app { grid-template-columns:1fr; grid-template-rows:minmax(0,1fr) auto; } #stage { min-height:62vh; } aside { border-left:0; border-top:1px solid var(--line); max-height:38vh; } }
+  </style>
+</head>
+<body>
+<div id="app">
+  <main id="stage" aria-label="Interactive three-dimensional CodeMem cognitive memory graph">
+    <canvas id="scene"></canvas>
+    <div id="labels" aria-label="Graph node names"></div>
+    <div id="hud">
+      <h1>CodeMem cognitive memory graph</h1>
+      <p class="sub">Depth = memory layer · color = evidence state · orbit, zoom, click.</p>
+      <div id="legend" aria-label="Graph legend">
+        <span class="legend-item"><i class="dot" style="background:#78a9ff"></i>memory</span>
+        <span class="legend-item"><i class="dot" style="background:#64d9a2"></i>episode</span>
+        <span class="legend-item"><i class="dot" style="background:#f3b562"></i>evidence</span>
+        <span class="legend-item"><i class="dot" style="background:#ef7d9a"></i>verification</span>
+        <span class="legend-item"><i class="dot" style="background:#b18cff"></i>scope</span>
+      </div>
+    </div>
+    <div id="controls-help" aria-label="3D graph controls">
+      <h2>3D controls</h2>
+      <div class="gesture">
+        <span><kbd>Left drag</kbd></span><span>Orbit</span>
+        <span><kbd>⌘/Ctrl + drag</kbd></span><span>Pan</span>
+        <span><kbd>Scroll</kbd></span><span>Zoom</span>
+        <span><kbd>Click sphere</kbd></span><span>Focus node</span>
+      </div>
+    </div>
+  </main>
+  <aside>
+    <div class="control"><label for="search">Find node</label><input id="search" type="search" placeholder="provider, evidence, candidate…"></div>
+    <div class="row"><button id="all" type="button">All nodes</button><button id="reset" type="button">Reset view</button></div>
+    <hr>
+    <section id="details" aria-live="polite">
+      <h2>Select a node</h2>
+      <p>Click any sphere. Edges show support, supersession, contestation and scope.</p>
+    </section>
+  </aside>
+</div>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+</script>
+<script type="module">
+  import * as THREE from "three";
+  import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+  const graph = {
+    nodes: [
+      { id:"scope:project", type:"scope", label:"Project scope", detail:"The retrieval boundary for project-local knowledge.", metadata:{ layer:"scope", scope_key:"project:/code-mem", source:"project database", contains:"episodes, evidence, memories" }, position:[0,0,0] },
+      { id:"episode:provider", type:"episode", label:"Episode · provider change", detail:"A captured event that emitted evidence for a changing claim.", metadata:{ layer:"episodic", observed_at:"2025-04-01", source:"conversation", role:"user" }, position:[-3,2,1] },
+      { id:"memory:current-provider", type:"memory", label:"Current provider: OpenAI", detail:"The accepted current decision selected by recall.", metadata:{ layer:"semantic", belief:"accepted", claim_type:"decision", valid_from:"2025-04-01", valid_to:"open", confidence:"0.92", provenance:"evidence:provider" }, position:[-1,2,2] },
+      { id:"memory:old-provider", type:"memory", label:"Previous provider: Anthropic", detail:"Historical value retained for temporal explanation.", metadata:{ layer:"semantic", belief:"superseded", claim_type:"decision", valid_to:"2025-04-01", superseded_by:"memory:current-provider", recall:"historical only" }, position:[-1,2,-2] },
+      { id:"evidence:provider", type:"evidence", label:"Evidence · supports", detail:"A provenance link connecting the episode to the accepted claim.", metadata:{ layer:"evidence", relation:"supports", reliability:"0.90", source_episode:"episode:provider", target_claim:"memory:current-provider" }, position:[1,2,1] },
+      { id:"episode:retry", type:"episode", label:"Episode · webhook procedure", detail:"A manually observed procedure captured with its source context.", metadata:{ layer:"episodic", observed_at:"2025-01-20", source:"manual note", scope:"project" }, position:[3,-2,1] },
+      { id:"memory:retry", type:"memory", label:"Stripe retry procedure", detail:"A durable procedure available for future operational recall.", metadata:{ layer:"semantic", kind:"procedure", importance:"0.80", retrieval_strength:"0.70", belief:"accepted", source_episode:"episode:retry" }, position:[4,-1,0] },
+      { id:"memory:candidate", type:"memory", label:"Conversation candidate", detail:"Captured content waiting for verification before promotion.", metadata:{ layer:"working", belief:"candidate", processing:"candidate_pending", status:"review", verification:"verification:review" }, position:[1,-3,-2] },
+      { id:"verification:review", type:"verification", label:"Verification queue", detail:"A review task that keeps uncertain knowledge out of trusted recall.", metadata:{ layer:"control", status:"pending", priority:"0.90", action:"verify or contest", target:"memory:candidate" }, position:[3,-3,-2] },
+      { id:"memory:contested", type:"memory", label:"Contested claim", detail:"A disputed claim retained for audit but excluded from current recall.", metadata:{ layer:"semantic", belief:"contested", status:"excluded", audit:"preserved", scope_key:"project:/code-mem" }, position:[-3,-2,-2] }
+    ],
+    edges: [
+      ["scope:project","episode:provider","contains"], ["episode:provider","evidence:provider","emits"],
+      ["evidence:provider","memory:current-provider","supports"], ["memory:current-provider","memory:old-provider","supersedes"],
+      ["scope:project","episode:retry","contains"], ["episode:retry","memory:retry","supports"],
+      ["memory:candidate","verification:review","needs_review"], ["scope:project","memory:candidate","scoped_to"],
+      ["scope:project","memory:contested","scoped_to"]
+    ]
+  };
+  const colors = { memory:0x78a9ff, episode:0x64d9a2, evidence:0xf3b562, verification:0xef7d9a, scope:0xb18cff };
+  const canvas = document.getElementById("scene");
+  const labelLayer = document.getElementById("labels");
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(52, 1, .1, 100);
+  camera.position.set(8, 5, 11);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.target.set(0,0,0);
+  scene.add(new THREE.AmbientLight(0xbfd4ff, 1.7));
+  const key = new THREE.DirectionalLight(0xffffff, 2.1); key.position.set(5,8,10); scene.add(key);
+  const nodeById = new Map();
+  const labelById = new Map();
+  const meshes = [];
+  for (const node of graph.nodes) {
+    const geometry = new THREE.SphereGeometry(node.type === "scope" ? .42 : .32, 20, 14);
+    const material = new THREE.MeshStandardMaterial({ color:colors[node.type], emissive:colors[node.type], emissiveIntensity:.12, roughness:.65, transparent:true });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(...node.position);
+    mesh.userData.node = node;
+    const label = document.createElement("div");
+    label.className = "node-label";
+    label.dataset.type = node.type;
+    label.textContent = node.label;
+    label.title = `${node.label} · ${node.id}`;
+    label.setAttribute("aria-label", node.label);
+    labelLayer.append(label);
+    scene.add(mesh); meshes.push(mesh); nodeById.set(node.id, mesh); labelById.set(node.id, label);
+  }
+  for (const [from,to,label] of graph.edges) {
+    const a = nodeById.get(from).position, b = nodeById.get(to).position;
+    const geometry = new THREE.BufferGeometry().setFromPoints([a,b]);
+    const material = new THREE.LineBasicMaterial({ color:0x61749a, transparent:true, opacity:.7 });
+    const line = new THREE.Line(geometry, material); line.userData.edge = label; scene.add(line);
+  }
+  const raycaster = new THREE.Raycaster(); const pointer = new THREE.Vector2();
+  const projected = new THREE.Vector3(); const cameraSpace = new THREE.Vector3();
+  const details = document.getElementById("details");
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>\"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
+  }
+  function displayValue(value) {
+    if (Array.isArray(value)) return value.join(", ");
+    if (value && typeof value === "object") return JSON.stringify(value);
+    return value;
+  }
+  function show(node) {
+    const metadata = Object.entries(node.metadata || {});
+    const connections = graph.edges
+      .filter(([from,to]) => from === node.id || to === node.id)
+      .map(([from,to,relation]) => {
+        const otherId = from === node.id ? to : from;
+        const other = graph.nodes.find((candidate) => candidate.id === otherId);
+        return `<div class="connection"><span class="connection-node">${escapeHtml(other?.label || otherId)}</span><span class="connection-relation">${escapeHtml(from === node.id ? relation : `← ${relation}`)}</span></div>`;
+      }).join("");
+    details.innerHTML = `<h2>${escapeHtml(node.label)}</h2><p class="hint">${escapeHtml(node.detail)}</p><dl><dt>Type</dt><dd>${escapeHtml(node.type)}</dd><dt>Node ID</dt><dd>${escapeHtml(node.id)}</dd></dl>${metadata.length ? `<h3 class="section-title">Memory state</h3><div class="meta-grid">${metadata.map(([key,value]) => `<span class="meta-key">${escapeHtml(key.replaceAll("_", " "))}</span><span class="meta-value">${escapeHtml(displayValue(value))}</span>`).join("")}</div>` : ""}${connections ? `<h3 class="section-title">Connected knowledge</h3><div>${connections}</div>` : ""}`;
+  }
+  let focusTween = null;
+  function animateCameraTo(target, position) {
+    focusTween = {
+      startedAt: performance.now(),
+      duration: 900,
+      fromPosition: camera.position.clone(),
+      fromTarget: controls.target.clone(),
+      toPosition: position.clone(),
+      toTarget: target
+    };
+    controls.enabled = false;
+  }
+  function focus(mesh) {
+    const target = mesh.getWorldPosition(new THREE.Vector3());
+    animateCameraTo(target, target.clone().add(new THREE.Vector3(4,2,5)));
+  }
+  canvas.addEventListener("pointerdown", (event) => {
+    const rect = canvas.getBoundingClientRect(); pointer.x = ((event.clientX-rect.left)/rect.width)*2-1; pointer.y = -((event.clientY-rect.top)/rect.height)*2+1;
+    raycaster.setFromCamera(pointer,camera); const hit = raycaster.intersectObjects(meshes)[0];
+    if (hit) { show(hit.object.userData.node); focus(hit.object); }
+  });
+  document.getElementById("search").addEventListener("input", (event) => {
+    const query = event.target.value.toLowerCase().trim();
+    for (const mesh of meshes) { const n=mesh.userData.node; const visible=!query || `${n.id} ${n.label} ${n.detail}`.toLowerCase().includes(query); mesh.material.opacity=visible?1:.12; mesh.scale.setScalar(visible?1:.7); }
+  });
+  document.getElementById("all").addEventListener("click", () => { document.getElementById("search").value=""; for (const mesh of meshes) { mesh.material.opacity=1; mesh.scale.setScalar(1); } });
+  document.getElementById("reset").addEventListener("click", () => animateCameraTo(new THREE.Vector3(0,0,0), new THREE.Vector3(8,5,11)));
+  function resize() { const rect=canvas.parentElement.getBoundingClientRect(); renderer.setSize(rect.width,rect.height,false); camera.aspect=rect.width/rect.height; camera.updateProjectionMatrix(); }
+  new ResizeObserver(resize).observe(canvas.parentElement); resize();
+  function updateLabels() {
+    const rect = canvas.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    for (const node of graph.nodes) {
+      const mesh = nodeById.get(node.id); const label = labelById.get(node.id);
+      mesh.getWorldPosition(projected); cameraSpace.copy(projected).applyMatrix4(camera.matrixWorldInverse); projected.project(camera);
+      const inView = cameraSpace.z < 0 && projected.z >= -1 && projected.z <= 1 && projected.x >= -1.08 && projected.x <= 1.08 && projected.y >= -1.08 && projected.y <= 1.08;
+      label.hidden = !inView;
+      if (inView) {
+        label.style.left = `${(projected.x * .5 + .5) * rect.width}px`;
+        label.style.top = `${(-projected.y * .5 + .5) * rect.height}px`;
+        label.style.zIndex = String(Math.round((1 - projected.z) * 100));
+        label.style.opacity = mesh.material.opacity > .5 ? "1" : ".22";
+      }
+    }
+  }
+  function updateFocusTween(now) {
+    if (!focusTween) { controls.update(); return; }
+    const progress = Math.min(1, (now - focusTween.startedAt) / focusTween.duration);
+    const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    camera.position.lerpVectors(focusTween.fromPosition, focusTween.toPosition, eased);
+    controls.target.lerpVectors(focusTween.fromTarget, focusTween.toTarget, eased);
+    controls.update();
+    if (progress >= 1) {
+      camera.position.copy(focusTween.toPosition);
+      controls.target.copy(focusTween.toTarget);
+      controls.update();
+      focusTween = null;
+      controls.enabled = true;
+    }
+  }
+  function animate() { requestAnimationFrame(animate); updateFocusTween(performance.now()); renderer.render(scene,camera); updateLabels(); }
+  animate();
+</script>
+</body>
+</html>

@@ -62,22 +62,28 @@ function gl() {
   return `cm - Code-Mem Tool
 
 Usage:
-  cm init [harness]
+  cm init [--deep] [harness]
   cm setup
   cm update                 (binary self-update from remote)
-  cm update --memory        (re-scan repo: refresh snapshot + graph)
+  cm update --memory        (refresh snapshot)
+  cm update --memory --deep (one-command full repository index + LLM relations + 3D graph)
   cm update --memory --clean [--dry-run]   (archive noisy memories)
   cm update --memory --reset               (archive ALL memories, re-scan)
                                            (+ auto-installs missing harness hooks)
+  cm serve                                 (open graph through the global local service)
+  cm service install|start|status|restart|stop (one per-user service, project-isolated)
+  cm projects [list|show|recall|graph]    (global managed-project catalog; cross-project access is explicit)
   cm version
   cm explain
   cm help        (add --full to see all commands)
 
 Memory write commands:
-  cm save [--kind k] [--layer l] [--title t] [--summary s] [--confidence n] [--tag tag] [--file path] [--global] [--auto] [--role dev|agent] <text>
+  cm save [--kind k] [--layer l] [--title t] [--summary s] [--confidence n] [--importance n] [--tag tag] [--file path] [--global] [--auto] [--role dev|agent] <text>
   cm add <text>
   cm add-user <text>
   cm replace <match> <new text>
+  cm verify <id> [--by verifier]
+  cm contest <id> [reason]
   cm rm <match>
   cm archive <id>
   cm touch <id>
@@ -90,12 +96,12 @@ Memory read commands:
   cm ls-user
   cm recent [n]
   cm plan <task>
-  cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic]
-  cm explain <task> [--limit n] [--mode keyword|hybrid|semantic]
+  cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic|explore] [--scope project|global] [--as-of ISO]
+  cm explain <task> [--limit n] [--mode keyword|hybrid|semantic|explore] [--scope project|global] [--as-of ISO]
   cm recall-auto
   cm watch [--interval N] [--daemon]
   cm project
-  cm consolidate
+  cm consolidate [--accept-candidates]
   cm mcp           (MCP stdio server: memory tools for MCP harnesses)
 
 Capture layer:
@@ -104,7 +110,7 @@ Capture layer:
 
 Examples:
   cm save --kind decision --title "Use Vitest" "Vitest is the default test runner"
-  cm save --kind procedure --global "Deploy classico: docker sul server dal file .env"
+  cm save --kind procedure --global "Deploy with Docker from the repository .env file"
   cm backup --global
   cm recall "fix flaky tests" --level 2
   cm plan "deploy preview build"
@@ -117,7 +123,7 @@ function glFull() {
   return `${gl()}
 
 [--full] Graph query:
-  cm query <question>   BFS from keyword-matched nodes
+  cm query [--dfs] [--budget N] <question>   BFS (default) or DFS traversal
 
 [--full] Graph commands:
   cm ga <id> <label> <type>
@@ -125,25 +131,34 @@ function glFull() {
   cm gn <id|label>
   cm gp <from> <to> [--dijkstra]
   cm gc [--vacuum]
-  cm gx [html|graphml|neo4j|svg]
+  cm gx --format [graphml|neo4j|csv|cypher|html|html3d|svg|obsidian]
+  cm serve [--foreground] [--port N]       (diagnostic project-local graph server)
+  cm service run [--port N]                (foreground global graph service)
   cm gs
   cm gi
+  cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
 
 [--full] Scan commands:
+  cm init --deep             Full repository index, harness integration, semantic pass, projections, 3D HTML
+  cm update --memory --deep  Repeat the full workflow after changes
   cm scan --relations [--apply]
   cm scan --deep [--no-ast]
 
 [--full] Semantic:
   cm entities [--limit n] [--msgs] [--apply]   Extract entities from memories (+ optionally conversations)
-  cm history [--kind k] [--entity e] [--limit n]  Timeline + digest of memory evolution
+  cm history [--kind k] [--entity e] [--limit n] [--as-of ISO]  Timeline + digest of memory evolution
   cm digest (alias of history)
 
 [--full] Import commands:
+  cm import <source-folder>     Import Markdown knowledge; infer structure and normalize with a local LLM when available
   cm import --graphify <path>   Import graph from graphify
   cm import --claude-mem         Import memories from claude-mem
   cm import --json <path>        Import nodes/edges from JSON
 
+[--full] Harness integration:
+  Deep workflow detects Claude Code, Pi, Codex, OpenCode, Gemini, Qwen,
+  Copilot, Cursor, and Windsurf; installs hooks + project skill + /cm-update.
+
 [--full] Capture/search:
   cm sq <query> [n]   Full message search (also listed in core help)`;
 }
-

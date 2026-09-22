@@ -8,13 +8,16 @@ Persistent project memory for coding agents and developers, with optional global
 - generated `MEMORY.md` and `USER.md` projections
 - a lightweight JSON graph
 - FTS5 search over stored conversation logs
+- cognitive lifecycle data: episodes, evidence, belief state, candidates, verification and task working sets
 
 It is designed to stay simple:
 
 - one CLI
 - local files only
-- no services to run
+- one optional per-user loopback graph service serving multiple isolated projects
 - no external database
+
+Memory density policy: saves use deterministic English-first compact prose (caveman-style: high signal, low filler). Provider/model transport chatter such as `[llmp] provider...` and `[llmproxy]...` is rejected at intake, so it cannot become recall noise. Optional semantic processing stays outside the deterministic local core and never becomes a runtime requirement.
 
 Requires Node.js 22+. If your Node build exposes `node:sqlite` only behind `--experimental-sqlite`, `cm` re-execs itself with that flag automatically.
 
@@ -44,7 +47,7 @@ Public help is deliberately **lean**: the corollary graph/scan/query/entities/hi
 Initialize memory in a repo:
 
 ```bash
-cm init
+cm init --deep
 ```
 
 Save a durable project fact:
@@ -98,6 +101,49 @@ Regenerate the markdown projections:
 cm project
 ```
 
+## One-command full repository indexing
+
+For an existing repository, use the unified workflow:
+
+```bash
+cm init --deep
+```
+
+It detects available Claude Code, Pi, Codex, OpenCode, Gemini, Qwen, Copilot,
+Cursor, and Windsurf harnesses; installs project-local hooks, skills, and
+`/cm-update`; indexes directories, files, documents, headings, configuration,
+assets, code symbols, local imports, external modules, and explicit Markdown
+links; runs entity/community enrichment; and writes `memory/graph-3d.html`. For
+infrastructure repositories with explicit server/service inventories, the HTML
+graph uses an operational projection: each visible node is a server, service,
+application, database, or storage entity. The full document/evidence graph is
+still retained in `memory/graph.json` and SQLite for recall and provenance.
+When a harness CLI is available, cm invokes it in a bounded read-only mode and
+uses its existing settings/authentication for evidence-bound semantic
+normalization and relations. Secrets are never read or printed by cm.
+
+After repository changes:
+
+```bash
+cm update --memory --deep
+```
+
+## Global local graph service
+
+The installer creates one per-user `cm-graphd` service on loopback. It serves every registered repository while keeping each project's memory database, harness settings, provider selection, and chat context isolated.
+
+```bash
+cm service install            # one-time OS user-service setup
+cm service status
+cm serve                      # register/open the current project's graph
+cm service stop               # optional lifecycle control
+```
+
+`cm serve --foreground` is available only as a project-local diagnostic mode. The normal URL contains a project-scoped id and local capability token; the service never accepts a raw filesystem path from the browser. If no harness with an explicit provider is configured in the current project, the graph remains usable and the chat panel stays hidden.
+
+The lower-level scan/entity/community commands remain useful diagnostics, but
+are not required for a complete graph.
+
 ## What `cm init` Creates
 
 ```text
@@ -106,8 +152,48 @@ your-project/
     ├── MEMORY.md
     ├── USER.md
     ├── graph.json
+    ├── graph-3d.html
     └── state.db
 ```
+
+The per-user service registry is kept separately at `~/.cm/graphd/projects.json`.
+
+The same registry is the managed-project catalog. It is visible from every
+Code-Mem project through `cm projects`; project contents are never injected
+automatically. Cross-project recall or graph access requires an explicit
+selector, for example `cm projects recall <project-id> "the prior deploy fix"`
+or `cm projects graph <project-id>`.
+
+## Memory scopes and types
+
+Code-Mem separates memory by both type and scope. Project memory lives in
+`<repo>/memory/state.db`; global memory lives in `~/.cm/state.db`.
+
+- `fact`: durable project or global knowledge.
+- `decision`: a choice and its reason/consequence.
+- `procedure`: repeatable instructions; consolidated into the procedural layer.
+- `issue`: a failure, cause, fix, or next diagnostic step.
+- `artifact`: a useful file, command, endpoint, report, or generated output.
+- `preference`: a user-level working preference. General preferences belong in
+  the global store and are injected into normal project recall as
+  `global-preference`; they never override project facts or detected stacks.
+- `event`: a dated change or occurrence, usually produced by temporal imports.
+- `inference`: a derived claim that should remain less authoritative than an
+  observed fact or verified decision.
+
+Layers describe lifecycle rather than ownership: `working` and `episodic` are
+short-lived intake/context, `semantic` holds stable facts/decisions/issues,
+`procedural` holds repeatable procedures, and `user` holds preferences.
+Conversation messages and evidence/verification records are supporting layers;
+they are searchable/provenance-bearing but are not automatically promoted to
+durable facts. Use `cm consolidate` after a meaningful session.
+
+Use `cm save --global --kind preference --layer user "I generally prefer Next.js"`
+for a cross-project preference. In a Python repository the preference is
+context, not a technology decision: the project snapshot and project facts keep
+Python as the active stack. Use `--scope project` for a project-only diagnostic
+recall; default recall combines the current project with relevant global
+preferences.
 
 ## Architecture
 
@@ -144,9 +230,22 @@ What it does:
 Usage:
 
 ```bash
-cm init
-cm init pi       # initialize Pi skill + lifecycle hook in .pi/
+cm init --deep   # recommended first run: full graph + harness integration
+cm init          # minimal compatibility initialization
 ```
+
+For a complete first index of an existing repository, run one command:
+
+```bash
+cm init --deep
+```
+
+`cm init --deep` stores the snapshot, full file/document evidence graph, code
+symbols, explicit and inferred relations, entity nodes, communities, projections,
+and the navigable `memory/graph-3d.html`. For infrastructure vaults the HTML
+projection shows only operational entities, so headings, imported memory copies
+and AST symbols do not become visual nodes. Later, `cm update --memory --deep` repeats
+the same idempotent workflow after code or documentation changes.
 
 ### `cm setup`
 
@@ -175,6 +274,7 @@ Usage:
 cm update
 cm update --force
 cm update --memory                  # re-scan repo: refresh snapshot + graph (+ auto-install missing harness hooks)
+cm update --memory --deep           # full repository index + semantic relations + 3D graph
 cm update --memory --clean [--dry-run]  # archive near-duplicates + low-confidence noise
 cm update --memory --reset         # archive ALL project memories and re-scan fresh
 ```
@@ -276,7 +376,7 @@ cm save --kind procedure --layer procedural \
   --file scripts/reset-db.sh \
   "Run scripts/reset-db.sh and reseed test fixtures."
 cm save --kind procedure --global \
-  "Metodo di deploy classico: chiedi conferma e poi usa Docker sul server indicato nel file .env."
+  "Deployment procedure: confirm the target, then use Docker on the server named in .env."
 cm save --kind preference --layer user \
   "Prefer patches over full rewrites."
 ```
@@ -554,7 +654,9 @@ Behavior:
 - the bundle (`{ version, scope: "project", exportedAt, items }`) is deterministic and includes every memory regardless of status, so lifecycle provenance survives a round-trip.
 - the merge is an idempotent diff keyed by memory id: **new ids are created**, **existing ids are updated only when the incoming `updated_at` ISO timestamp is newer** (last-write-wins), otherwise the item is skipped unchanged. Re-importing the same bundle is a no-op.
 - merged items are re-vectorized (trigram) and re-indexed in FTS, and projections are refreshed.
-- `cm import` also accepts typed imports: `--graphify <path>`, `--claude-mem`, `--json <path>` (graph nodes/edges), with `--dry-run` and `--replace` options. A plain positional file is treated as an export bundle.
+- `cm import <source-folder-or-file>` imports any Markdown knowledge source, including a folder outside the current project. The command infers structure from content, runs asynchronous local-LLM normalization when available, preserves frontmatter/tags/aliases/links, and remains idempotent. It asks one question about deleting source Markdown files after a successful import; answer no to preserve the source. `--delete-source` is available for automation, while `--dry-run` and `--replace` remain supported. A positional `.json` file is treated as an export bundle; graph/JSON integrations remain available through their explicit flags.
+
+Set `CM_IMPORT_MODEL` to select the local model (default: `llama3.1:8b`). If the local model is unavailable, import completes with deterministic normalization and reports the fallback.
 
 ### `cm stats`
 
@@ -587,6 +689,14 @@ Usage:
 ```bash
 cm consolidate
 ```
+
+### Cognitive memory review and 3D graph
+
+The lifecycle E2E report compares CodeMem with Graphiti and the repository's Graphify importer:
+
+- [`docs/comparisons/graphiti-vs-codemem-e2e.md`](docs/comparisons/graphiti-vs-codemem-e2e.md)
+- [`docs/benchmarks/README.md`](docs/benchmarks/README.md)
+- [`docs/visualization/cognitive-memory-3d.html`](docs/visualization/cognitive-memory-3d.html) — labelled orbit/zoom/click 3D view of scope, episodes, memories, evidence and verification state; the bottom-left legend documents drag, pan, zoom and node focus.
 
 ## Graph Commands
 
@@ -747,8 +857,8 @@ Ranking considers:
 - context match
 - task-kind priority
 - number of memory links
-- **trigram similarity** — fallback embedding che cattura varianti morfologiche e refusi senza modelli esterni
-- **Ollama embedding** (opzionale) — similarità semantica via `nomic-embed-text`
+- **trigram similarity** — fallback embedding that catches morphological variants and typos without external models
+- **Ollama embedding** (optional) — semantic similarity via `nomic-embed-text`
 
 `--mode` rebalances the mix: `semantic` weights the similarity score at 0.55, `hybrid` keeps the full deterministic blend (and can go fully semantic-driven when the keyword/concept scores are negligible), `keyword` skips embeddings entirely.
 
@@ -758,7 +868,7 @@ No external model is required for retrieval. If Ollama is present, it is preferr
 
 ## Recommended Workflow
 
-1. Run `cm init` once per repo.
+1. Run `cm init --deep` once per repo.
 2. Save durable learnings with `cm save`.
 3. When a learning should apply in every repo, save it with `cm save --global`.
 4. Use `cm recall "<task>"` before starting substantial work.
@@ -772,7 +882,7 @@ No external model is required for retrieval. If Ollama is present, it is preferr
 - Legacy commands still work for compatibility.
 - `graph.json` remains intentionally simple and separate from the SQLite memory tables.
 - `cm scan --deep` installs the optional `acorn` AST parser into `~/.cm/deps` on first use (announced, one-time `npm install`); offline it falls back to the regex parser transparently (pass `--no-ast` to force regex).
-- No HTTP API, web viewer, or TUI by design (zero-server): `cm history --msgs` covers inspection, `cm mcp` covers agent integration.
+- The graph service is optional and loopback-only; project memory remains file-local and is never moved into the service. `cm history --msgs` covers inspection, and `cm mcp` covers agent integration.
 
 ## Threat model (local-first)
 
@@ -792,6 +902,7 @@ code-mem can run fully automatically with zero user intervention:
 # One-time setup
 ollama pull nomic-embed-text   # 137MB model for embeddings
 cm setup                        # installs skill + SessionStart hook
+cm service install              # starts the one global local graph service
 cm watch --daemon               # starts background daemon
 ```
 
@@ -811,10 +922,11 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 ### Typical Workflow
 
 1. `ollama pull nomic-embed-text` — one-time download (137MB)
-2. `cm init` — initialize memory in your project
+2. `cm init --deep` — initialize memory and build the full repository graph
 3. `cm setup` — installs skill and SessionStart hook in the project's `.claude/settings.json`
-4. `cm watch --daemon` — starts background daemon (embedding + consolidate + project)
-5. Work normally. code-mem remembers everything automatically.
+4. `cm service install` — starts the one global loopback graph service
+5. `cm watch --daemon` — optional background embedding + consolidation worker
+6. Work normally. code-mem remembers everything automatically.
 
 ## Comparison with Other Memory Systems
 
@@ -839,8 +951,9 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 
 ### Further Reading
 
-- **[docs/PHILOSOPHY.md](docs/PHILOSOPHY.md)** — design philosophy: local-first, kinds & layers, deterministic recall, zero dependencies, why simplicity wins
-- **[docs/COMPARISON.md](docs/COMPARISON.md)** — detailed comparison with claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, and Letta (MemGPT)
-- **[tests/benchmark-comparison.md](tests/benchmark-comparison.md)** — reproducible comparative benchmark vs a detwin-class proxy (write/recall latency, top-3 accuracy), with evaluation notes in [tests/benchmark-opinion.md](tests/benchmark-opinion.md)
-- **(IT) [docs/FILOSOFIA.md](docs/FILOSOFIA.md)** — versione italiana della filosofia
-- **(IT) [docs/COMPARAZIONE.md](docs/COMPARAZIONE.md)** — versione italiana della comparazione
+- **[docs/design/philosophy.md](docs/design/philosophy.md)** — design philosophy: local-first, kinds & layers, deterministic recall, zero dependencies, why simplicity wins
+- **[docs/comparisons/comparison.md](docs/comparisons/comparison.md)** — detailed comparison with claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, and Letta (MemGPT)
+- **[docs/benchmarks/memory-benchmark.md](docs/benchmarks/memory-benchmark.md)** — reproducible benchmark methodology and current comparison entrypoints
+- **[docs/comparisons/graphify-vs-codemem-e2e.md](docs/comparisons/graphify-vs-codemem-e2e.md)** — measured Graphify comparison with raw results
+- **[docs/comparisons/graphiti-vs-codemem-e2e.md](docs/comparisons/graphiti-vs-codemem-e2e.md)** — measured Graphiti comparison with cognitive-lifecycle boundary
+- **[docs/README.md](docs/README.md)** — organized documentation index and latest evidence

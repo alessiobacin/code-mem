@@ -27,12 +27,26 @@ function captureMessage(d, msg) {
   const session_id = msg.session_id || captureSessionId(process.cwd());
   const role = msg.role || "system";
   try {
-    runStmt(
+    const inserted = runStmt(
       d,
       "INSERT INTO messages(session_id,role,content,timestamp) VALUES(?,?,?,?)",
       [session_id, role, content, ts]
     );
-    return { session_id, role, content, timestamp: ts };
+    const messageId = Number(inserted?.lastInsertRowid || getStmt(d, "SELECT last_insert_rowid() AS id")?.id || 0);
+    const episode = registerCapturedEpisode(d, process.cwd(), {
+      source: "conversation",
+      sourceType: "conversation",
+      sourceRef: messageId ? `message:${messageId}` : null,
+      content,
+      role,
+      sessionId: session_id,
+      observedAt: ts,
+      metadata: { messageId },
+    });
+    if (messageId && episode?.id) {
+      try { runStmt(d, "UPDATE messages SET episode_id=? WHERE id=?", [episode.id, messageId]); } catch {}
+    }
+    return { id: messageId || undefined, session_id, role, content, timestamp: ts, episode_id: episode?.id || null };
   } catch (e) {
     return null;
   }
