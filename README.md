@@ -947,11 +947,11 @@ If Ollama is absent, all commands degrade gracefully to a **trigram-based fallba
 
 ### Summary
 
-### code-mem is the only system that combines zero dependencies, agent-agnostic support, typed memory layers, and local-first storage in a single CLI binary. It trades hosted sync and organization-level sharing for simplicity, determinism, privacy, and portability — making it the best fit for teams and individuals who want persistent memory without external services or vendor lock-in.
+### code-mem is the only system that combines a single binary with no required runtime packages, agent-agnostic support, typed memory layers, and local-first storage. It trades hosted sync and organization-level sharing for simplicity, determinism, privacy, and portability — making it the best fit for teams and individuals who want persistent memory without external services or vendor lock-in.
 
 ### Further Reading
 
-- **[docs/design/philosophy.md](docs/design/philosophy.md)** — design philosophy: local-first, kinds & layers, deterministic recall, zero dependencies, why simplicity wins
+- **[docs/design/philosophy.md](docs/design/philosophy.md)** — design philosophy: local-first, kinds & layers, deterministic recall, minimal dependencies, why simplicity wins
 - **[docs/comparisons/comparison.md](docs/comparisons/comparison.md)** — detailed comparison with claude-mem, graphify, Claude Code file memories, Mem0, Zep, LangMem, and Letta (MemGPT)
 - **[docs/benchmarks/memory-benchmark.md](docs/benchmarks/memory-benchmark.md)** — reproducible benchmark methodology and current comparison entrypoints
 - **[docs/comparisons/graphify-vs-codemem-e2e.md](docs/comparisons/graphify-vs-codemem-e2e.md)** — measured Graphify comparison with raw results

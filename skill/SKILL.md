@@ -86,7 +86,7 @@ These command families work when called directly, but are listed only under `--f
 - `cm service status|start|stop|restart|run` - manage the one per-user local graph service
 - `cm serve [--foreground] [--port N]` - open the project graph; `--foreground` is a diagnostic project-local server
 - `cm scan --relations [--apply]` - diagnostic code-relationship suggestions
-- `cm scan --deep` - diagnostic AST-only scan; the unified workflow includes it automatically
+- `cm scan --deep [--no-ast]` - diagnostic deep scan; Acorn is optional and the regex fallback remains available offline
 - `cm query "question"` - BFS graph query from matched nodes
 - `cm import --graphify <path>` / `--claude-mem` / `--json <path>` - import graph data
 
@@ -96,13 +96,12 @@ These command families work when called directly, but are listed only under `--f
 - `cm history [--kind k] [--entity e] [--limit n]` - timeline + digest of memory evolution
 - `cm digest` - alias of `cm history`
 
-## Agent protocol
-
 ## Reliability
 
 - Memory writes are transactional (`BEGIN IMMEDIATE`/`COMMIT` with rollback), so a crash never leaves half-written rows.
 - `cm watch` recovers from stale lock files left by dead processes (PID liveness check).
 - `cm update` verifies the downloaded bundle's SHA-256 against the published `bin/cm.sha256` manifest before installing; on mismatch it refuses and writes nothing.
+- For deterministic CI/debug runs, set `CM_NO_LLM=1`; use `CM_NO_OLLAMA=1` when only Ollama embeddings should be disabled.
 
 ## Guidelines
 

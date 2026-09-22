@@ -7,6 +7,10 @@
   "scripts": {
     "build": "node build/bundle.mjs",
     "lint": "for f in src/*.js; do node --check \"$f\" || exit 1; done; echo LINT-OK",
-    "test": "node --test tests/non-regression/cm-cli.test.mjs && bash tests/test-e2e.sh && bash tests/tddb/run-all.sh"
+    "test:cli": "node --test tests/non-regression/cm-cli.test.mjs",
+    "test:behavior": "node --test tests/a1-rerank/temperature-rerank.test.mjs tests/a2-update/checksum.test.mjs tests/a2-update/stale-lock.test.mjs tests/a2-update/transactions.test.mjs tests/cognitive-memory.test.mjs",
+    "test:e2e": "bash tests/test-e2e.sh",
+    "test:tddb": "bash tests/tddb/run-all.sh",
+    "test": "npm run test:cli && npm run test:behavior && npm run test:e2e && npm run test:tddb"
   }
 }

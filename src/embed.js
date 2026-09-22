@@ -1,6 +1,7 @@
 // Sync Ollama probe without a shell: execFileSync passes argv directly, so
 // OLLAMA_BASE can never be interpolated into a shell command (IMP-08).
 function checkOllama() {
+  if (process.env.CM_NO_LLM === "1" || process.env.CM_NO_OLLAMA === "1") return false;
   try {
     const status = execFileSync(
       "curl",
@@ -160,4 +161,3 @@ function listUnembeddedMemories(d) {
      ORDER BY mi.updated_at ASC`
   );
 }
-

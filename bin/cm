@@ -1321,10 +1321,50 @@ function scanASTDeep(cwd, noAst) {
   // path so same-basename files in different folders never collide).
   const fileCallData = []; // per-file { fileId, fileBase, relPath, pending, calls, bindings }
   const fileSymbols = new Map(); // relPath -> { fileId, fileBase, fns: Map(name->id) }
+  const fileRecords = new Map(); // relPath -> { fileId, fileBase }
   function recordFn(relPath, fileId, fileBase, name, id) {
     let rec = fileSymbols.get(relPath);
     if (!rec) { rec = { fileId, fileBase, fns: new Map() }; fileSymbols.set(relPath, rec); }
     if (!rec.fns.has(name)) rec.fns.set(name, id);
+  }
+
+  function addPendingBinding(pending, name, request) {
+    const local = String(name || "").trim();
+    const target = String(request || "").trim();
+    if (!local || !target || !/^[A-Za-z_$][\w$]*$/.test(local)) return;
+    if (!pending.some((entry) => entry.name === local && entry.request === target)) {
+      pending.push({ name: local, request: target });
+    }
+  }
+
+  function bindingNames(specifier) {
+    return String(specifier || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => part.replace(/^\.\.\./, "").trim())
+      .map((part) => part.split(/\s+as\s+|\s*:\s*/).pop()?.trim() || "")
+      .filter(Boolean);
+  }
+
+  // Acorn handles these declarations when available, but keeping one small
+  // source-level binding pass makes the AST and offline regex paths agree.
+  // It also covers CommonJS destructuring, which the old regex path missed
+  // because its match started at `require(` and excluded the declaration.
+  function collectSourceBindings(content, pending) {
+    const patterns = [
+      [/\b(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g, 1],
+      [/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g, 0],
+      [/\bimport\s*\{([^}]+)\}\s*from\s*["']([^"']+)["']/g, 1],
+      [/\bimport\s+([A-Za-z_$][\w$]*)\s+from\s*["']([^"']+)["']/g, 0],
+    ];
+    for (const [pattern, nameGroup] of patterns) {
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        const names = nameGroup === 1 ? bindingNames(match[1]) : [match[1]];
+        for (const name of names) addPendingBinding(pending, name, match[2]);
+      }
+    }
   }
 
   function walkASTWithAcorn(acorn, acornLoose, content, fileBase, filePath) {
@@ -1345,18 +1385,11 @@ function scanASTDeep(cwd, noAst) {
     const relPath = relative(cwd, filePath).replace(/\\/g, "/");
     const fileId = hashId(fileBase);
     addNode(fileId, fileBase, "file", { source_path: relPath });
-    // Local bindings: imported name -> repo-relative target file. Resolves
-    // BOTH relative (`./auth`) and later lets the linking pass emit EXTRACTED
-    // `imports` + `calls` edges that graphify has and cm used to miss.
-    const localBindings = new Map(); // name -> targetRel
-    const resolveLocal = (request) => {
-      if (!request || !request.startsWith(".")) return "";
-      const base = normalize(join(dirname(relPath), request)).replace(/\\/g, "/");
-      const cands = [base, `${base}.js`, `${base}.jsx`, `${base}.mjs`, `${base}.cjs`, `${base}.ts`, `${base}.tsx`, `${base}/index.js`, `${base}/index.ts`];
-      const found = cands.find((c) => fileSymbols.has(c) || existsSync(join(cwd, c)));
-      return found || "";
-    };
+    fileRecords.set(relPath, { fileId, fileBase });
+    // Bindings are collected first and resolved after every file is indexed,
+    // so import targets can be declared later in the traversal.
     const pendingBindings = []; // {name, request} resolved after all files seen
+    collectSourceBindings(content, pendingBindings);
 
     const fileCalls = []; // { caller, callee }
     const memberCalls = {}; // obj -> count, for `obj.method()` (AMBIGUOUS references)
@@ -1474,8 +1507,10 @@ function scanASTDeep(cwd, noAst) {
     const relPath = relative(cwd, filePath).replace(/\\/g, "/");
     const fileId = hashId(fileBase);
     addNode(fileId, fileBase, "file", { source_path: relPath });
+    fileRecords.set(relPath, { fileId, fileBase });
     const pending = [];
     const calls = [];
+    collectSourceBindings(content, pending);
 
     // Imports (+ relative bindings: const { login } = require('./auth'))
     let match;
@@ -1488,11 +1523,11 @@ function scanASTDeep(cwd, noAst) {
         const destr = /\{([^}]+)\}\s*=\s*require\s*\(\s*["']/.exec(before) || /import\s*\{([^}]+)\}\s*from/.exec(before);
         if (destr) {
           for (const nm of destr[1].split(",").map((s) => s.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean)) {
-            if (/^[A-Za-z_$][\w$]*$/.test(nm)) pending.push({ name: nm, request: req });
+            if (/^[A-Za-z_$][\w$]*$/.test(nm)) addPendingBinding(pending, nm, req);
           }
         } else {
           const idm = /(?:const|let|var)\s+(\w+)\s*=\s*require/.exec(before) || /import\s+(\w+)\s+from/.exec(before);
-          if (idm) pending.push({ name: idm[1], request: req });
+          if (idm) addPendingBinding(pending, idm[1], req);
         }
       } else {
         const target = req.split("/")[0];
@@ -1614,6 +1649,7 @@ function scanASTDeep(cwd, noAst) {
     const relPath = relative(cwd, filePath).replace(/\\/g, "/");
     const fileId = hashId(fileBase);
     addNode(fileId, fileBase, "file", { source_path: relPath, language: lang });
+    fileRecords.set(relPath, { fileId, fileBase });
     const pending = [];
     const calls = [];
     const define = (name, type, index) => {
@@ -1658,7 +1694,7 @@ function scanASTDeep(cwd, noAst) {
       if (lang === "py" && !/^[./]/.test(req) && /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(req)) {
         const fromImp = /from\s+[\w.]+\s+import\s+([\w\s,()]+)/.exec(match[0]);
         const names = fromImp ? fromImp[1].replace(/[()]/g, "").split(",").map((s) => s.trim().split(/\s+/)[0]).filter(Boolean) : [req.split(".").pop()];
-        for (const nm of names) if (/^[A-Za-z_]\w*$/.test(nm)) pending.push({ name: nm, request: `./${req.split(".")[0]}` });
+        for (const nm of names) if (/^[A-Za-z_]\w*$/.test(nm)) addPendingBinding(pending, nm, `./${req.split(".")[0]}`);
       }
       if (/^[./]/.test(req)) {
         // relative: try to recover imported names from the same line/block
@@ -1668,7 +1704,7 @@ function scanASTDeep(cwd, noAst) {
         for (const nm of [/(\w+)\s*=\s*$/.exec(ctx)?.[1], ...[...ctx.matchAll(/\b(import)\s+(\w+)/g)].map((m) => m[2])]) if (nm) names.add(nm);
         const fromImp = /from\s+[\w.]+\s+import\s+([\w\s,()]+)/.exec(match[0]);
         if (fromImp) for (const nm of fromImp[1].replace(/[()]/g, "").split(",").map((s) => s.trim().split(/\s+/)[0]).filter(Boolean)) names.add(nm);
-        for (const nm of names) pending.push({ name: nm, request: req });
+        for (const nm of names) addPendingBinding(pending, nm, req);
       } else {
         const mod = req.split(/[./:]/)[0];
         if (mod && mod.length > 1) {
@@ -1721,8 +1757,8 @@ function scanASTDeep(cwd, noAst) {
     if (hasAcorn && /\.(js|jsx|mjs|cjs)$/i.test(file)) {
       // Use real AST for JS files
       walkASTWithAcorn(acornDeps.acorn, acornDeps.acornLoose, content, fileBase, file);
-    } else if (/\.(ts|tsx)$/i.test(file)) {
-      // Use regex for TS files
+    } else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(file)) {
+      // Use regex for JS/TS files when Acorn is unavailable or explicitly disabled.
       walkASTWithRegex(content, fileBase, file);
     } else {
       // Python/Go/Rust/Java/Ruby/PHP: dedicated symbol walker.
@@ -1737,7 +1773,7 @@ function scanASTDeep(cwd, noAst) {
     if (!request || !request.startsWith(".")) return "";
     const base = normalize(join(dirname(fromRel), request)).replace(/\\/g, "/");
     const cands = [base, `${base}.js`, `${base}.jsx`, `${base}.mjs`, `${base}.cjs`, `${base}.ts`, `${base}.tsx`, `${base}.py`, `${base}.go`, `${base}.rs`, `${base}.java`, `${base}.rb`, `${base}.php`, `${base}/index.js`, `${base}/index.ts`, `${base}/__init__.py`];
-    return cands.find((c) => fileSymbols.has(c)) || "";
+    return cands.find((c) => fileRecords.has(c) || fileSymbols.has(c)) || "";
   };
   const fnId = (rel, name) => fileSymbols.get(rel)?.fns.get(name) || "";
   for (const rec of fileCallData) {
@@ -1748,7 +1784,7 @@ function scanASTDeep(cwd, noAst) {
     }
     const boundTargets = new Set(bindings.values());
     for (const target of boundTargets) {
-      const tgt = fileSymbols.get(target);
+      const tgt = fileRecords.get(target) || fileSymbols.get(target);
       if (tgt) addEdge(rec.fileId, tgt.fileId, "imports", "EXTRACTED");
     }
     const ownFns = fileSymbols.get(rec.relPath)?.fns;
@@ -1766,7 +1802,7 @@ function scanASTDeep(cwd, noAst) {
       if (call.caller) {
         const callerId = fnId(rec.relPath, call.caller) || rec.fileId;
         if (calleeId) addEdge(callerId, calleeId, "calls", "EXTRACTED");
-        else addEdge(callerId, fileSymbols.get(target)?.fileId || rec.fileId, "calls", "INFERRED");
+        else addEdge(callerId, fileRecords.get(target)?.fileId || fileSymbols.get(target)?.fileId || rec.fileId, "calls", "INFERRED");
       } else if (calleeId) {
         addEdge(rec.fileId, calleeId, "calls", "INFERRED");
       }
@@ -1908,6 +1944,7 @@ function scanRepositoryInventory(cwd, opts = {}) {
 // Sync Ollama probe without a shell: execFileSync passes argv directly, so
 // OLLAMA_BASE can never be interpolated into a shell command (IMP-08).
 function checkOllama() {
+  if (process.env.CM_NO_LLM === "1" || process.env.CM_NO_OLLAMA === "1") return false;
   try {
     const status = execFileSync(
       "curl",

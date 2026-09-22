@@ -68,11 +68,11 @@ code-mem produces multiple local views of the same information:
 
 The Markdown projections are *generated artifacts* — don't edit them by hand. The database is the sole source of truth.
 
-### 5. Zero runtime dependencies
+### 5. Minimal runtime dependencies
 
-The `cm` CLI is a single Node.js file using `node:sqlite` (native in Node 22+). If your Node build only exposes it behind `--experimental-sqlite`, `cm` re-execs itself with that flag automatically. No npm dependencies, no packages to install, no external runtime.
+The `cm` CLI is a single Node.js file using `node:sqlite` (native in Node 22+). If your Node build only exposes it behind `--experimental-sqlite`, `cm` re-execs itself with that flag automatically. The core commands require no npm packages or external service. `cm scan --deep` may install the optional Acorn parser into `~/.cm/deps`; if installation is unavailable, the built-in regex parser remains usable.
 
-The only optional dependency is [Ollama](https://ollama.com) with `nomic-embed-text` (137 MB) for semantic embeddings. If it's there, great. If it's not, everything works the same — just without semantic similarity.
+The optional integrations are [Ollama](https://ollama.com) with `nomic-embed-text` (137 MB) for semantic embeddings and Acorn for richer JavaScript parsing. If either is unavailable, deterministic local fallbacks keep the core workflow working.
 
 ### 6. For every agent, not just Claude
 
@@ -102,7 +102,7 @@ No sync, no real-time collaboration, no hosted backend. Memory is still local to
 
 ### It's not (only) a knowledge graph
 
-`graph.json` stays lightweight: typed nodes and related edges, with deterministic traversal. Since 0.7.0 CodeMem has graph capabilities without a runtime: the unified `cm init --deep` / `cm update --memory --deep` workflow indexes folders, files, Markdown sections, assets, code symbols, imports, explicit wiki links, entities and communities. The complete evidence graph remains available for recall, provenance and diagnostics. When a repository declares infrastructure inventories such as `docs/servers/`, `docs/services/`, `docs/*/apps/` or `docs/*/databases/`, HTML exports automatically use an operational projection: one node per server, service, application, database or storage entity, with document headings and AST symbols excluded from the visual topology. `cm scan`, `cm query`, `cm gc`, `cm gx`, and `cm entities` remain direct diagnostic surfaces. The generated 3D view is an inspection surface, not a second source of truth. Graphify and Obsidian remain useful comparison/export ecosystems; CodeMem now covers the complete local repository graph while adding memory-native provenance, temporal state and review lifecycle.
+`graph.json` stays lightweight: typed nodes and related edges, with deterministic traversal. Since 0.8.1 CodeMem has graph capabilities without a required runtime service: the unified `cm init --deep` / `cm update --memory --deep` workflow indexes folders, files, Markdown sections, assets, code symbols, imports, explicit wiki links, entities and communities. The complete evidence graph remains available for recall, provenance and diagnostics. When a repository declares infrastructure inventories such as `docs/servers/`, `docs/services/`, `docs/*/apps/` or `docs/*/databases/`, HTML exports automatically use an operational projection: one node per server, service, application, database or storage entity, with document headings and AST symbols excluded from the visual topology. `cm scan`, `cm query`, `cm gc`, `cm gx`, and `cm entities` remain direct diagnostic surfaces. The generated 3D view is an inspection surface, not a second source of truth. Graphify and Obsidian remain useful comparison/export ecosystems; CodeMem now covers the complete local repository graph while adding memory-native provenance, temporal state and review lifecycle.
 
 ### It captures conversation, not just memories
 
@@ -144,7 +144,7 @@ This is its philosophy. And, we believe, its strength.
 
 ## 2026 Evolution
 
-The philosophy stays the same (local-first, zero dependencies, agent-agnostic, deterministic), but the surface grew to close the most visible parity gaps — without giving up the core principles:
+The philosophy stays the same (local-first, minimal required dependencies, agent-agnostic, deterministic), but the surface grew to close the most visible parity gaps — without giving up the core principles:
 
 - **`cm entities`** — automatic entity extraction from memories and (with `--msgs`) conversations, using heuristics and regex (no external model), optionally written into the graph via `--apply`.
 - **`cm history` / `cm digest`** — timeline + evolution digest of the memory (by kind, by month, top entities).

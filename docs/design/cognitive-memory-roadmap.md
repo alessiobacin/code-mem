@@ -1,6 +1,6 @@
 # Cognitive memory roadmap
 
-Status: CodeMem `0.7.0` ships the T0 cognitive-memory contracts described in
+Status: CodeMem `0.8.1` ships the T0 cognitive-memory contracts described in
 [cognitive-memory.md](cognitive-memory.md). Remaining items are forward
 roadmap work and must not be presented as shipped until code and tests confirm
 them.

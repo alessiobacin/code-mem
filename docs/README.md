@@ -1,6 +1,6 @@
 # CodeMem documentation
 
-This directory is organized by purpose. The repository version currently tested is `0.7.0` (`node bin/cm version`).
+This directory is organized by purpose. The repository version currently tested is `0.8.1` (`node bin/cm version`).
 
 ## Start here
 

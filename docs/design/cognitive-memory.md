@@ -1,6 +1,6 @@
 # CodeMem cognitive memory — shipped contract
 
-Status: implemented and tested in `0.7.0`.
+Status: implemented and tested in `0.8.1`.
 
 CodeMem keeps the local SQLite/CLI/MCP model and adds a compact cognitive lifecycle around durable memories:
 

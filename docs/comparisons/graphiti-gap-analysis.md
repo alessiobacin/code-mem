@@ -3,7 +3,7 @@
 **Audit date:** 21 settembre 2026  
 **Purpose:** borrow useful architectural contracts from Graphiti/Zep without replacing CodeMem or introducing Graphiti as a dependency.
 
-**Status update (`0.7.0`):** CodeMem now ships the T0 episode/evidence/candidate/working-set/verification contracts described in this document. Remaining gaps are deliberately scoped to P1/P2 work; the current implementation contract is summarized in [`../design/cognitive-memory.md`](../design/cognitive-memory.md).
+**Status update (`0.8.1`):** CodeMem now ships the T0 episode/evidence/candidate/working-set/verification contracts described in this document. Remaining gaps are deliberately scoped to P1/P2 work; the current implementation contract is summarized in [`../design/cognitive-memory.md`](../design/cognitive-memory.md).
 
 ## Reference boundary
 

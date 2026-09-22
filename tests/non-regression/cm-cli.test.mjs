@@ -1035,12 +1035,12 @@ describe("cm goal gap-fill", () => {
     assert.ok(stored, "catalog must stay readable");
   });
 
-  test("`cm scan --deep` emits function-level calls edges for destructured require", () => {
+  test("`cm scan --deep --no-ast` resolves destructured CommonJS imports and calls offline", () => {
     const p = makeProject("ast-calls");
     initProject(p);
     writeFileSync(join(p.dir, "src", "auth.js"), "function login(u){ return u; }\nmodule.exports = { login };\n");
     writeFileSync(join(p.dir, "src", "api.js"), "const { login } = require('./auth');\nfunction handleLogin(r){ return login(r); }\nmodule.exports = { handleLogin };\n");
-    const r = p.run(["scan", "--deep"]);
+    const r = p.run(["scan", "--deep", "--no-ast"]);
     assert.equal(r.code, 0, `scan failed: ${r.output}`);
     const graph = JSON.parse(readFileSync(join(p.dir, "memory", "graph.json"), "utf8"));
     const calls = (graph.edges || []).filter((e) => (e.relation || e.r) === "calls");

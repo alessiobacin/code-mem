@@ -65,7 +65,7 @@ function makeProject(name = "proj") {
   const home = join(dir, "home");
   mkdirSync(home, { recursive: true });
   shelves.push(dir);
-  const env = { ...process.env, HOME: home };
+  const env = { ...process.env, HOME: home, CM_NO_LLM: "1" };
   return {
     dir,
     env,
