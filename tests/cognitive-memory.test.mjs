@@ -33,6 +33,11 @@ function dbQuery(project, sql, ...params) {
   return JSON.parse(result.stdout.trim() || "null");
 }
 
+// Node 22.12's bundled SQLite lacks FTS5; cm then falls back to LIKE search.
+const HAS_FTS5 = spawnSync(process.execPath, ["--experimental-sqlite", "-e",
+  'new (require("node:sqlite").DatabaseSync)(":memory:").exec("CREATE VIRTUAL TABLE t USING fts5(x)")'],
+  { stdio: "ignore" }).status === 0;
+
 function makeProject(name = "cognitive") {
   const dir = join(rootTmp, `${name}-${Math.random().toString(36).slice(2, 8)}`);
   mkdirSync(join(dir, "src"), { recursive: true });
@@ -65,10 +70,12 @@ describe("cognitive memory T0", () => {
     assert.equal(saved.status, 0, saved.output);
     const episodes = dbQuery(project, "SELECT COUNT(*) AS c FROM memory_episodes WHERE source_type='manual'");
     const evidence = dbQuery(project, "SELECT COUNT(*) AS c FROM memory_evidence WHERE relation='supports'");
-    const fts = dbQuery(project, "SELECT COUNT(*) AS c FROM memory_fts WHERE memory_fts MATCH ?", 'Postgres');
     assert.ok(Number(episodes.c) >= 1);
     assert.ok(Number(evidence.c) >= 1);
-    assert.ok(Number(fts.c) >= 1);
+    if (HAS_FTS5) {
+      const fts = dbQuery(project, "SELECT COUNT(*) AS c FROM memory_fts WHERE memory_fts MATCH ?", 'Postgres');
+      assert.ok(Number(fts.c) >= 1);
+    }
     const recall = run(project, ["recall", "Postgres transactional storage", "--mode", "keyword"]);
     assert.equal(recall.status, 0, recall.output);
     assert.match(recall.stdout, /Database uses Postgres/);

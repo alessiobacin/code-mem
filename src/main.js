@@ -1275,7 +1275,7 @@ async function main() {
   d.close();
 }
 
-main().catch((e) => {
+if (!SQLITE_REEXEC) main().catch((e) => {
   console.error(e.message);
   process.exit(1);
 });

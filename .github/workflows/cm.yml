@@ -18,10 +18,10 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: node build/bundle.mjs
       - run: git diff --exit-code -- bin/cm bin/cm.sha256
-      - run: node --test tests/non-regression/cm-cli.test.mjs
-      - run: node --test tests/a1-rerank/temperature-rerank.test.mjs tests/a2-update/checksum.test.mjs tests/a2-update/stale-lock.test.mjs tests/a2-update/transactions.test.mjs tests/cognitive-memory.test.mjs
-      - run: bash tests/test-e2e.sh
-      - run: bash tests/tddb/run-all.sh
+      - run: npm run test:cli
+      - run: npm run test:behavior
+      - run: npm run test:e2e
+      - run: npm run test:tddb
       - name: bundle byte-identical check
         run: |
           cp bin/cm /tmp/cm-before

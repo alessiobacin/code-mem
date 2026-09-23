@@ -19,7 +19,7 @@ const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.8.2";
+const VERSION = "0.8.3";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -33,16 +33,23 @@ try {
   DB = null;
 }
 
+// Async re-exec (not spawnSync) so SIGTERM/SIGINT reach the child: a blocked
+// parent would die on the signal and orphan the real `cm serve` process.
+// main() only runs when SQLITE_REEXEC is null.
+let SQLITE_REEXEC = null;
 if (!DB && !process.env.CM_SQLITE_REEXEC) {
-  const retry = spawnSync(
+  SQLITE_REEXEC = spawn(
     process.execPath,
-    ["--experimental-sqlite", __filename, ...process.argv.slice(2)],
+    ["--experimental-sqlite", "--disable-warning=ExperimentalWarning", __filename, ...process.argv.slice(2)],
     {
       stdio: "inherit",
       env: { ...process.env, CM_SQLITE_REEXEC: "1" },
     }
   );
-  process.exit(retry.status ?? 1);
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => SQLITE_REEXEC.kill(sig));
+  SQLITE_REEXEC.on("exit", (code, signal) => {
+    process.exit(code ?? (signal ? 128 + (require("os").constants.signals[signal] || 0) : 1));
+  });
 }
 
 const ML = 2200;

@@ -535,7 +535,7 @@ echo ""
 # TEST 48: image vision ingest (harness vision -> graph elements)
 echo "━━━ TEST 48: cm media vision ingest ━━━"
 mkdir -p mediacorpus/docs
-python3 - <<'PYEOF' 2>/dev/null
+python3 - <<'PYEOF' 2>/dev/null || true  # no PIL (e.g. CI) -> skip branch below
 from PIL import Image, ImageDraw
 img = Image.new('RGB', (900, 400), 'white')
 d = ImageDraw.Draw(img)

@@ -10,7 +10,9 @@ function od(p) {
   // failing with SQLITE_BUSY; the explicit graph-refresh lock coordinates the
   // normal path, while busy_timeout covers unavoidable process scheduling
   // races.
-  d.exec("PRAGMA page_size=4096; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000");
+  // busy_timeout must come first: journal_mode needs a lock and would fail
+  // instantly (no busy handler yet) while another process holds one.
+  d.exec("PRAGMA busy_timeout=30000; PRAGMA page_size=4096; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL");
   d.exec(`
     CREATE TABLE IF NOT EXISTS messages(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,7 +120,24 @@ function ensureMigrationColumns(d) {
   } catch { /* non-fatal: ignore migration errors on legacy DBs */ }
 }
 
+// Builds without FTS5 (e.g. Node 22.12's bundled SQLite) get plain fallback
+// tables. Both FTS tables are derived data, so once FTS5 is available drop the
+// fallback: otherwise `CREATE VIRTUAL TABLE IF NOT EXISTS` is a no-op and
+// search stays on LIKE forever. Returns true when a fallback was dropped.
+function dropPlainFtsFallback(d, table, triggers) {
+  let sql = "";
+  try { sql = String(getStmt(d, "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", [table])?.sql || ""); } catch {}
+  if (!sql || /CREATE\s+VIRTUAL/i.test(sql)) return false;
+  try {
+    d.exec("CREATE VIRTUAL TABLE temp.cm_fts5_probe USING fts5(x); DROP TABLE temp.cm_fts5_probe");
+  } catch { return false; }
+  for (const trigger of triggers) d.exec(`DROP TRIGGER IF EXISTS ${trigger}`);
+  d.exec(`DROP TABLE ${table}`);
+  return true;
+}
+
 function ensureMessagesSearchTables(d) {
+  const rebuild = dropPlainFtsFallback(d, "messages_fts", ["messages_ai", "messages_ad"]);
   try {
     d.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
@@ -136,6 +155,7 @@ function ensureMessagesSearchTables(d) {
         VALUES('delete',old.id,old.role,old.content,old.session_id,old.timestamp);
       END;
     `);
+    if (rebuild) d.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
   } catch {
     d.exec(`
       CREATE TABLE IF NOT EXISTS messages_fts(
@@ -165,6 +185,7 @@ function ensureMemorySearchTable(d) {
   // `tags` although memory_items has no such column, so every MATCH could
   // fail and silently fall back to LIKE. Tags live in memory_context and are
   // copied into this derived index on insert/update.
+  dropPlainFtsFallback(d, "memory_fts", ["memory_fts_ai", "memory_fts_au", "memory_fts_ad", "memory_fts_bd"]);
   let schema = "";
   try { schema = String(getStmt(d, "SELECT sql FROM sqlite_master WHERE name='memory_fts'")?.sql || ""); } catch {}
   // Legacy installations used both `content=memory_items` and quoted

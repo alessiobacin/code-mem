@@ -1,6 +1,6 @@
 {
   "name": "code-mem",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "private": true,
   "type": "module",
   "description": "Local-first persistent project memory for coding agents.",
@@ -8,7 +8,7 @@
     "build": "node build/bundle.mjs",
     "lint": "for f in src/*.js; do node --check \"$f\" || exit 1; done; echo LINT-OK",
     "test:cli": "node --test tests/non-regression/cm-cli.test.mjs",
-    "test:behavior": "node --test tests/a1-rerank/temperature-rerank.test.mjs tests/a2-update/checksum.test.mjs tests/a2-update/stale-lock.test.mjs tests/a2-update/transactions.test.mjs tests/cognitive-memory.test.mjs tests/a3-perf/hot-path.test.mjs",
+    "test:behavior": "node --experimental-sqlite --test tests/a1-rerank/temperature-rerank.test.mjs tests/a2-update/checksum.test.mjs tests/a2-update/stale-lock.test.mjs tests/a2-update/transactions.test.mjs tests/cognitive-memory.test.mjs tests/a3-perf/hot-path.test.mjs tests/a4-fts/fts-upgrade.test.mjs",
     "test:e2e": "bash tests/test-e2e.sh",
     "test:tddb": "bash tests/tddb/run-all.sh",
     "test": "npm run test:cli && npm run test:behavior && npm run test:e2e && npm run test:tddb"
