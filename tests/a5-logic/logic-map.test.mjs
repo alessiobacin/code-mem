@@ -37,8 +37,8 @@ function pick(name) {
 }
 
 function loadHelpers() {
-  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap"];
-  const src = `const LOGIC_MAX_PARTS = 9;\n${names.map(pick).join("\n")}\nreturn { ${names.join(", ")} };`;
+  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap", "logicUnits"];
+  const src = `const LOGIC_MAX_PARTS = 9;\nconst LOGIC_MAX_UNITS = 120;\n${names.map(pick).join("\n")}\nreturn { ${names.join(", ")} };`;
   return new Function("createHash", src)(createHash);
 }
 
@@ -103,6 +103,23 @@ describe("A5 logic view helpers", () => {
     const many = { parts: Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `Part ${i}`, files: i < 3 ? [inv.files[i].path] : [] })) };
     assert.ok(h.normalizeLogicMap(many, inv).parts.length <= 9);
     assert.equal(h.normalizeLogicMap({ parts: [] }, inv), null);
+  });
+
+  test("big repos are offered as folders and folder answers expand to files", () => {
+    const files = [];
+    for (let i = 0; i < 130; i += 1) files.push({ path: `app/${i % 2 ? "ui" : "api"}/f${i}.js`, symbols: [`fn${i}`] });
+    files.push({ path: "tools/build.js", symbols: ["build"] });
+    const inv = { files: files.sort((a, b) => a.path.localeCompare(b.path)), links: [] };
+    const units = h.logicUnits(inv);
+    assert.deepEqual(units.map((u) => [u.key, u.count]), [["app/api/", 65], ["app/ui/", 65], ["tools/", 1]]);
+    const map = h.normalizeLogicMap({ parts: [
+      { id: "screens", name: "The Screens", files: ["app/ui/"] },
+      { id: "helpers", name: "The Helpers", files: ["app/api/", "tools/build.js"] },
+    ] }, inv);
+    assert.equal(map.parts[0].files.length, 65);
+    assert.equal(map.parts[1].files.length, 66);
+    const small = h.logicUnits(h.logicInventory(graph));
+    assert.deepEqual(small.map((u) => u.key), ["src/cli.js", "src/search.js", "src/store.js"]);
   });
 
   test("without an LLM a previous map follows file changes and turns stale", () => {

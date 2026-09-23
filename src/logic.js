@@ -7,6 +7,7 @@
 
 const LOGIC_META_KEY = "logic_map";
 const LOGIC_MAX_PARTS = 9;
+const LOGIC_MAX_UNITS = 120;
 
 function logicInventory(graph) {
   const fileOf = new Map();
@@ -33,6 +34,28 @@ function logicInventory(graph) {
       return { from, to, weight };
     }).sort((a, b) => b.weight - a.weight || a.from.localeCompare(b.from) || a.to.localeCompare(b.to)),
   };
+}
+
+// What the LLM sees and answers with: single files for small repos; folders
+// ("dir/") for big ones, so the reply never has to echo hundreds of paths
+// (it truncated on a 450-file repo). Coarsens the folder depth until it fits.
+function logicUnits(inventory) {
+  if (inventory.files.length <= LOGIC_MAX_UNITS) return inventory.files.map((file) => ({ key: file.path, count: 1, symbols: file.symbols }));
+  let units = [];
+  for (const depth of [Infinity, 2, 1]) {
+    const byKey = new Map();
+    for (const file of inventory.files) {
+      const dirs = file.path.split("/").slice(0, -1).slice(0, depth);
+      const key = dirs.length ? `${dirs.join("/")}/` : file.path;
+      const unit = byKey.get(key) || { key, count: 0, symbols: [] };
+      unit.count += 1;
+      for (const symbol of file.symbols) if (unit.symbols.length < 8) unit.symbols.push(symbol);
+      byKey.set(key, unit);
+    }
+    units = [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+    if (units.length <= LOGIC_MAX_UNITS) break;
+  }
+  return units;
 }
 
 // Structure only (files + symbol names): body edits keep the names valid,
@@ -92,8 +115,13 @@ function normalizeLogicMap(raw, inventory) {
     const name = String(item?.name || "").replace(/\s+/g, " ").trim().slice(0, 40);
     const id = String(item?.id || name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
     if (!name || !id || parts.some((part) => part.id === id)) continue;
-    const files = (Array.isArray(item?.files) ? item.files : []).map(String).filter((file) => known.has(file) && !taken.has(file));
-    files.forEach((file) => taken.add(file));
+    const files = (Array.isArray(item?.files) ? item.files : []).map(String)
+      .flatMap((entry) => entry.endsWith("/") ? inventory.files.map((file) => file.path).filter((file) => file.startsWith(entry)) : [entry])
+      .filter((file) => {
+        if (!known.has(file) || taken.has(file)) return false;
+        taken.add(file);
+        return true;
+      });
     parts.push({
       id,
       name,
@@ -139,7 +167,9 @@ function logicReadmeExcerpt(cwd) {
 }
 
 function logicPrompt(inventory, readme, prev) {
-  const files = inventory.files.slice(0, 220).map((file) => `${file.path}: ${file.symbols.slice(0, 12).join(", ")}`);
+  const units = logicUnits(inventory);
+  const folders = units.some((unit) => unit.key.endsWith("/"));
+  const files = units.slice(0, LOGIC_MAX_UNITS).map((unit) => `${unit.key}${unit.count > 1 ? ` (${unit.count} files)` : ""}: ${unit.symbols.slice(0, 12).join(", ")}`);
   const links = inventory.links.slice(0, 160).map((link) => `${link.from} -> ${link.to} (${link.weight})`);
   const previous = prev ? JSON.stringify((prev.parts || []).map(({ id, emoji, name, files: owned }) => ({ id, emoji, name, files: owned }))) : "none";
   return [
@@ -150,11 +180,13 @@ function logicPrompt(inventory, readme, prev) {
     "- Part name: 1-3 everyday words, a friendly role or metaphor (like \"The Librarian\" or \"The Front Door\"). Never use technical words such as API, database, function, module, server, cache, parser, file, class, script, SQL, JSON, CLI, hook, graph, query.",
     "- Summary: one short sentence about what the part does for the person using the software, with no jargon.",
     "- Flow verb: 1-4 plain words for what one part does with another (like \"asks\" or \"writes notes in\").",
-    "- Every file belongs to exactly one part; copy paths exactly. Group by purpose, not by folder. Tests go together in a part about checking the work.",
+    folders
+      ? "- The list below has FOLDERS (ending in /) and files. Every entry belongs to exactly one part; copy entries exactly, including the trailing /. Tests go together in a part about checking the work."
+      : "- Every file belongs to exactly one part; copy paths exactly. Group by purpose, not by folder. Tests go together in a part about checking the work.",
     "- When PREVIOUS PARTS are given, keep their id, emoji and name if their job is unchanged.",
     'Output: {"language":"...","parts":[{"id":"short-kebab-id","emoji":"one emoji","name":"...","summary":"...","files":["exact/path"]}],"flows":[{"from":"part-id","to":"part-id","verb":"..."}]}',
     `README excerpt:\n${readme || "(none)"}`,
-    `FILES (path: main names inside):\n${files.join("\n")}`,
+    `${folders ? "ENTRIES" : "FILES"} (path: main names inside):\n${files.join("\n")}`,
     `LINKS (calls between files):\n${links.join("\n") || "(none)"}`,
     `PREVIOUS PARTS: ${previous}`,
   ].join("\n");
