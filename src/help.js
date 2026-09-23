@@ -137,6 +137,7 @@ function glFull() {
   cm gs
   cm gi
   cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
+  cm logic [--force] [--json] [--no-llm]  Plain-language "How it works" map (parts + flows) -> 3D view toggle
 
 [--full] Scan commands:
   cm init --deep             Full repository index, harness integration, semantic pass, projections, 3D HTML

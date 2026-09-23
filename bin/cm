@@ -24,7 +24,7 @@ const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.8.3";
+const VERSION = "0.9.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -3274,6 +3274,7 @@ function glFull() {
   cm gs
   cm gi
   cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
+  cm logic [--force] [--json] [--no-llm]  Plain-language "How it works" map (parts + flows) -> 3D view toggle
 
 [--full] Scan commands:
   cm init --deep             Full repository index, harness integration, semantic pass, projections, 3D HTML
@@ -7241,7 +7242,7 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
   return outPath;
 }
 
-function export3DHTML(g, cwd) {
+function export3DHTML(g, cwd, logic = null) {
   const graphProject = registerGraphProject(cwd);
   const visual = graphForVisualization(g);
   const visualEdges = (visual.edges || []).filter((edge) =>
@@ -7275,6 +7276,9 @@ function export3DHTML(g, cwd) {
     evidenceNodes: (g.nodes || []).length,
     evidenceEdges: (g.edges || []).length,
   }).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const logicPayload = JSON.stringify(logic && logic.parts?.length
+    ? { stale: Boolean(logic.stale), parts: logic.parts, flows: logic.flows || [] }
+    : null).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   const typeColors = {
     project: "#f6c453", "project-directory": "#f6c453", server: "#fb7185", service: "#fda4af", storage: "#38bdf8", database: "#a78bfa", application: "#34d399", container: "#fbbf24", proxy: "#22d3ee", directory: "#eaa94a", document: "#7dd3fc",
     "knowledge-note": "#67e8f9", "wiki-note": "#67e8f9", "obsidian-note": "#67e8f9", section: "#a7f3d0",
@@ -7315,11 +7319,18 @@ h1{font-size:16px;letter-spacing:.02em;margin:0 8px 0 0;color:#f8fafc;white-spac
 #controls-body .nav-command{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:7px;min-height:22px}
 #controls-body .nav-command kbd{margin-right:0}
 @media(max-width:850px){#chat{left:50%;right:auto;bottom:12px;top:auto;transform:translateX(-50%);width:calc(100vw - 24px)}#controls{width:min(230px,42vw)}}
+#view-toggle{border-color:rgba(103,232,249,.55);background:#0f3346;font-weight:600;white-space:nowrap;flex:none}
+body.logic-mode .label,body.logic-mode .macro-label,body.logic-mode #filters,body.logic-mode #search{display:none!important}
+.logic-label{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:rgba(3,14,27,.86);border:1px solid var(--part-color,#67e8f9);color:#f8fafc;font-size:15px;white-space:nowrap;cursor:pointer;pointer-events:auto;box-shadow:0 0 14px rgba(0,0,0,.6);transition:opacity .2s}
+.logic-label .emoji{font-size:20px;line-height:1}
+.logic-verb{font-size:12px;color:#cbd5e1;background:rgba(3,14,27,.72);padding:2px 7px;border-radius:6px;white-space:nowrap;pointer-events:none;transition:opacity .2s}
+body:not(.logic-mode) .logic-label,body:not(.logic-mode) .logic-verb{display:none!important}
+.logic-summary{font-size:15px;line-height:1.5;color:#e2e8f0;margin:6px 0 12px}.logic-flow{padding:4px 0;color:#cbd5e1}.logic-stale{color:#fbbf24;font-size:12px;margin:4px 0 8px}
 </style>
 </head>
 <body>
 <div id="scene"></div>
-<div id="top"><h1>Code-Mem · 3D Knowledge Graph</h1><span id="stats"></span><input id="search" class="search" placeholder="Search nodes…" aria-label="Search nodes"><button id="reset">Reset view</button></div>
+<div id="top"><h1>Code-Mem · 3D Knowledge Graph</h1><span id="stats"></span>${logic && logic.parts?.length ? '<button id="view-toggle" type="button"></button>' : ""}<input id="search" class="search" placeholder="Search nodes…" aria-label="Search nodes"><button id="reset">Reset view</button></div>
 <section id="filters"><div class="panel-title">Visible categories</div><div class="category-list" id="category-filters"></div><button class="category-all" id="category-all" type="button">Show all categories</button></section>
 <aside id="side" class="empty"><button id="side-toggle" type="button" aria-expanded="true"><strong>Node details</strong><span>⌃</span></button><div id="side-content" class="side-content">Click a node to inspect its metadata, provenance, and connected relations.</div></aside>
 <section id="chat" class="collapsed" hidden><div id="chat-head"><strong>Ask the graph</strong><span id="chat-provider"></span><button id="chat-toggle" type="button" aria-expanded="false" aria-label="Expand chat">＋</button></div><div id="chat-resize" role="presentation" aria-label="Resize chat"></div><div id="chat-log"></div><form class="chat-form" id="chat-form"><textarea id="chat-input" rows="2" placeholder="Ask about this project's memory…" aria-label="Ask the graph"></textarea><button id="chat-submit" type="submit">Ask</button></form><div class="chat-foot">Drag the header to move · drag ↗ to resize · Cmd/Ctrl + Enter to send.</div></section>
@@ -7331,6 +7342,7 @@ import {OrbitControls} from "three/addons/controls/OrbitControls.js";
 import {CSS2DRenderer,CSS2DObject} from "three/addons/renderers/CSS2DRenderer.js";
 const DATA=${payload};
 const COLORS=${JSON.stringify(typeColors)};
+const LOGIC=${logicPayload};
 document.addEventListener('click',event=>{const label=event.target.closest?.('.label');if(!label)return;const n=DATA.nodes.find(item=>item._label===label);if(!n)return;event.stopPropagation();hovered=null;show(n)},true);
 const BRIDGE_URL=${JSON.stringify(graphServiceUrl())};
 const GRAPH_PROJECT=${JSON.stringify({ id: graphProject.id, token: graphProject.token })};
@@ -7384,6 +7396,31 @@ function updateSearch(value){searchQuery=String(value||'').toLowerCase().trim();
 searchInput.addEventListener('input',ev=>updateSearch(ev.target.value));searchInput.addEventListener('keydown',ev=>{if(ev.key!=='Enter')return;ev.preventDefault();const results=DATA.nodes.filter(n=>visibleTypes.has(n.type)&&searchMatches.has(n.id));if(!results.length)return;hovered=null;if(results.length===1){show(results[0]);return}showSearchSummary(results);applyHighlight();const ids=new Set();results.forEach(n=>{ids.add(n.id);neighborIdsById.get(n.id)?.forEach(id=>{if(visibleTypes.has(nodeDataById.get(id)?.type))ids.add(id)})});focusOnIds(ids)});
 document.querySelector('#stats').textContent=DATA.nodes.length+' operational nodes · '+DATA.edges.length+' relations · '+communityIds.length+' macro clusters · '+(DATA.evidenceNodes||DATA.nodes.length)+' evidence nodes';const types=[...new Set(DATA.nodes.map(n=>n.type))];const typeCounts=new Map(types.map(type=>[type,DATA.nodes.filter(node=>node.type===type).length]));const categoryFilters=document.querySelector('#category-filters');function renderCategoryFilters(){categoryFilters.innerHTML=types.map(t=>'<button type="button" class="category-filter '+(visibleTypes.has(t)?'':'off')+'" data-category="'+esc(t)+'" aria-pressed="'+visibleTypes.has(t)+'"><i class="dot" style="--dot-color:'+esc(COLORS[t]||COLORS.default)+';background:'+esc(COLORS[t]||COLORS.default)+'"></i><span>'+esc(t)+' <small>'+typeCounts.get(t)+'</small></span></button>').join('');categoryFilters.querySelectorAll('[data-category]').forEach(button=>button.addEventListener('click',()=>{const category=button.dataset.category;if(visibleTypes.has(category))visibleTypes.delete(category);else visibleTypes.add(category);if(selected&&!visibleTypes.has(selected.type))clearSelection();renderCategoryFilters();applyHighlight()}))}document.querySelector('#category-all').addEventListener('click',()=>{types.forEach(type=>visibleTypes.add(type));renderCategoryFilters();applyHighlight()});renderCategoryFilters();const controlsToggle=document.querySelector('#controls-toggle'),controlsBody=document.querySelector('#controls-body');controlsToggle.addEventListener('click',()=>{const open=controlsBody.hidden;controlsBody.hidden=!open;controlsToggle.setAttribute('aria-expanded',String(open));controlsToggle.querySelector('span').textContent=open?'⌃':'⌄'});
 function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);labels.setSize(innerWidth,innerHeight);keepChatInsideViewport()}addEventListener('resize',resize);applyHighlight();function loop(){requestAnimationFrame(loop);animateFocus();animateVisuals();controls.update();updateLabels();renderer.render(scene,camera);labels.render(scene,camera)}loop();
+
+if(LOGIC){
+// "How it works": plain-language parts as big spheres, flows as arrows.
+const logicGroup=new THREE.Group();logicGroup.visible=false;scene.add(logicGroup);
+const PALETTE=[0x67e8f9,0xfbbf24,0xa78bfa,0x34d399,0xfb7185,0x60a5fa,0xf472b6,0xa3e635,0xfdba74];
+const partMeshes=[],partMeshById=new Map(),flowObjs=[],partById=new Map(LOGIC.parts.map(p=>[p.id,p]));
+const maxFiles=Math.max(...LOGIC.parts.map(p=>p.files.length),1),logicRadius=Math.max(14,LOGIC.parts.length*3.4);
+LOGIC.parts.forEach((p,i)=>{const color=PALETTE[i%PALETTE.length],size=2.2+2.4*Math.sqrt(p.files.length/maxFiles);const mesh=new THREE.Mesh(new THREE.SphereGeometry(size,32,24),new THREE.MeshStandardMaterial({color,emissive:new THREE.Color(color),emissiveIntensity:.25,roughness:.4,transparent:true,opacity:.95}));mesh.position.copy(localPos(i,LOGIC.parts.length,logicRadius));const el=document.createElement('div');el.className='logic-label';el.style.setProperty('--part-color','#'+color.toString(16).padStart(6,'0'));el.innerHTML='<span class="emoji">'+esc(p.emoji)+'</span><b>'+esc(p.name)+'</b>';el.addEventListener('click',ev=>{ev.stopPropagation();showPart(p)});const label=new CSS2DObject(el);label.position.set(0,size+1.4,0);mesh.add(label);mesh.userData={part:p,size,el};logicGroup.add(mesh);partMeshes.push(mesh);partMeshById.set(p.id,mesh)});
+const maxWeight=Math.max(...LOGIC.flows.map(f=>f.weight||1),1);
+LOGIC.flows.forEach(f=>{const a=partMeshById.get(f.from),b=partMeshById.get(f.to);if(!a||!b)return;const mid=a.position.clone().add(b.position).multiplyScalar(.5);const bend=mid.lengthSq()>1e-6?mid.clone().normalize():new THREE.Vector3(0,1,0);mid.add(bend.multiplyScalar(logicRadius*.22));const curve=new THREE.QuadraticBezierCurve3(a.position.clone(),mid,b.position.clone());const radius=.07+.2*Math.sqrt((f.weight||1)/maxWeight);const mat=new THREE.MeshStandardMaterial({color:0x94a3b8,emissive:0x1e293b,transparent:true,opacity:.7});const tube=new THREE.Mesh(new THREE.TubeGeometry(curve,48,radius,8,false),mat);const tEnd=1-Math.min(.45,(b.userData.size+.9)/curve.getLength());const cone=new THREE.Mesh(new THREE.ConeGeometry(radius*3+.3,1.4,16),mat);cone.position.copy(curve.getPoint(tEnd));cone.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),curve.getTangent(tEnd).normalize());const el=document.createElement('div');el.className='logic-verb';el.textContent=f.verb;const verb=new CSS2DObject(el);verb.position.copy(curve.getPoint(.5));logicGroup.add(tube,cone,verb);flowObjs.push({f,mat,el})});
+let logicMode=false,logicActive=null,logicHover=null,logicDown=null;const techMeshes=[];
+function logicHighlight(){const act=logicActive||logicHover;const related=new Set();if(act){related.add(act.id);LOGIC.flows.forEach(f=>{if(f.from===act.id)related.add(f.to);if(f.to===act.id)related.add(f.from)})}partMeshes.forEach(m=>{const on=!act||related.has(m.userData.part.id);m.material.opacity=on?.95:.16;m.material.emissiveIntensity=act?.id===m.userData.part.id?.75:.25;m.userData.el.style.opacity=on?'1':'.28'});flowObjs.forEach(o=>{const on=!act||o.f.from===act.id||o.f.to===act.id;o.mat.opacity=on?(act?.95:.7):.06;o.mat.color.set(act&&on?0x67e8f9:0x94a3b8);o.el.style.opacity=on?'1':'0'})}
+function logicIntro(){sidePanel.classList.remove('empty');sideContent.innerHTML='<div class="kind">HOW IT WORKS</div><h2>'+LOGIC.parts.length+' parts working together</h2>'+(LOGIC.stale?'<div class="logic-stale">The code changed since these names were written; they may be slightly out of date.</div>':'')+'<div class="logic-summary">Each ball is one part of the software. Arrows show which part helps which. Click a part to read what it does.</div>'+LOGIC.parts.map(p=>'<div class="logic-flow">'+esc(p.emoji)+' <b>'+esc(p.name)+'</b> — '+esc(p.summary)+'</div>').join('')}
+function showPart(p){logicActive=p;logicHighlight();const name=x=>esc(x.emoji+' '+x.name);const out=LOGIC.flows.filter(f=>f.from===p.id).map(f=>'<div class="logic-flow">→ '+esc(f.verb)+' '+name(partById.get(f.to))+'</div>');const inc=LOGIC.flows.filter(f=>f.to===p.id).map(f=>'<div class="logic-flow">'+name(partById.get(f.from))+' → '+esc(f.verb)+'</div>');const files=new Set(p.files);const techIds=DATA.nodes.filter(n=>files.has(n.metadata?.source_path)).map(n=>n.id);sidePanel.classList.remove('empty');sideContent.innerHTML='<div class="kind">PART</div><h2>'+name(p)+'</h2><div class="logic-summary">'+esc(p.summary)+'</div>'+(out.length||inc.length?'<div class="relations"><h3>Works with</h3>'+out.join('')+inc.join('')+'</div>':'')+'<details class="relations"><summary>Built from '+p.files.length+' source file(s)</summary>'+p.files.map(f=>'<div><small>'+esc(f)+'</small></div>').join('')+'</details>'+(techIds.length?'<p><button type="button" id="logic-to-tech">🔧 See it in the technical view</button></p>':'');const jump=document.querySelector('#logic-to-tech');if(jump)jump.onclick=()=>{setMode(false);searchQuery=' ';searchMatches=new Set(techIds);applyHighlight();showSearchSummary(DATA.nodes.filter(n=>searchMatches.has(n.id)));sideContent.querySelector('.kind').textContent='TECHNICAL PIECES OF '+p.name;focusOnIds(new Set(techIds))};const ids=[p.id,...LOGIC.flows.filter(f=>f.from===p.id||f.to===p.id).map(f=>f.from===p.id?f.to:f.from)];focusLogic(ids)}
+function focusLogic(ids){const pts=ids.map(id=>partMeshById.get(id)?.position).filter(Boolean);if(!pts.length)return;const box=new THREE.Box3().setFromPoints(pts);const center=box.getCenter(new THREE.Vector3());const radius=Math.max(8,box.getSize(new THREE.Vector3()).length()/2+6);const distance=radius/Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*1.15;const dir=camera.position.clone().sub(controls.target);if(dir.lengthSq()<.001)dir.set(0,0,1);dir.normalize();focus={from:camera.position.clone(),to:center.clone().add(dir.multiplyScalar(distance)),targetFrom:controls.target.clone(),targetTo:center,start:performance.now(),duration:1000}}
+const viewToggle=document.querySelector('#view-toggle'),statsEl=document.querySelector('#stats'),techStats=statsEl.textContent;
+function setMode(on){logicMode=on;document.body.classList.toggle('logic-mode',on);group.visible=!on;logicGroup.visible=on;if(on)techMeshes.push(...meshes.splice(0));else meshes.push(...techMeshes.splice(0));hovered=null;selected=null;logicActive=null;logicHover=null;searchQuery='';searchMatches=new Set();applyHighlight();logicHighlight();viewToggle.textContent=on?'🔧 Technical view':'💡 How it works';statsEl.textContent=on?LOGIC.parts.length+' parts · '+LOGIC.flows.length+' connections':techStats;if(on){logicIntro();focusLogic(LOGIC.parts.map(p=>p.id))}else{clearSelection();focus={from:camera.position.clone(),to:home.position.clone(),targetFrom:controls.target.clone(),targetTo:home.target.clone(),start:performance.now(),duration:1000}}try{localStorage.setItem('cm-graph-view',on?'logic':'tech')}catch{}}
+viewToggle.addEventListener('click',()=>setMode(!logicMode));
+document.querySelector('#reset').addEventListener('click',()=>{if(!logicMode)return;logicActive=null;logicHighlight();logicIntro();focusLogic(LOGIC.parts.map(p=>p.id))});
+renderer.domElement.addEventListener('pointerdown',ev=>{logicDown={x:ev.clientX,y:ev.clientY}});
+renderer.domElement.addEventListener('pointermove',ev=>{if(!logicMode)return;pointer.x=(ev.clientX/innerWidth)*2-1;pointer.y=-(ev.clientY/innerHeight)*2+1;ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects(partMeshes)[0];const p=hit?.object.userData.part||null;if(p?.id!==logicHover?.id){logicHover=p;logicHighlight()}renderer.domElement.style.cursor=hit?'pointer':'grab'});
+renderer.domElement.addEventListener('click',ev=>{if(!logicMode)return;const dragged=logicDown&&((ev.clientX-logicDown.x)**2+(ev.clientY-logicDown.y)**2)>36;logicDown=null;if(dragged)return;pointer.x=(ev.clientX/innerWidth)*2-1;pointer.y=-(ev.clientY/innerHeight)*2+1;ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects(partMeshes)[0];if(hit)showPart(hit.object.userData.part);else{logicActive=null;logicHighlight();logicIntro()}});
+let saved=null;try{saved=localStorage.getItem('cm-graph-view')}catch{}
+setMode(saved!=='tech');
+}
 </script></body></html>`;
   const outPath = join(cwd, "memory", "graph-3d.html");
   wr(outPath, html);
@@ -7496,6 +7533,206 @@ function escJs(s) {
 }
 
 // ── Entity extraction (zero-dependency heuristics) ──────────────────────
+
+// Logic view: a plain-language map of what the software does, for people who
+// are not developers. Units are source files (function/class nodes carry
+// metadata.source_path); arrows are aggregated cross-file calls. The harness
+// LLM groups files into parts and names them in the README's language. The
+// map lives in cm_meta (derived data): without an LLM a previous map is
+// carried forward over file changes and marked stale until renamed.
+
+const LOGIC_META_KEY = "logic_map";
+const LOGIC_MAX_PARTS = 9;
+
+function logicInventory(graph) {
+  const fileOf = new Map();
+  const symbols = new Map();
+  for (const node of graph.nodes || []) {
+    const path = node.metadata?.source_path;
+    if (!path || (node.type !== "function" && node.type !== "class")) continue;
+    fileOf.set(node.id, path);
+    if (!symbols.has(path)) symbols.set(path, new Set());
+    symbols.get(path).add(String(node.label || node.id));
+  }
+  const weights = new Map();
+  for (const edge of graph.edges || []) {
+    if (edge.relation !== "calls") continue;
+    const from = fileOf.get(edge.source), to = fileOf.get(edge.target);
+    if (!from || !to || from === to) continue;
+    const key = `${from}\u0000${to}`;
+    weights.set(key, (weights.get(key) || 0) + 1);
+  }
+  return {
+    files: [...symbols.keys()].sort().map((path) => ({ path, symbols: [...symbols.get(path)].sort() })),
+    links: [...weights].map(([key, weight]) => {
+      const [from, to] = key.split("\u0000");
+      return { from, to, weight };
+    }).sort((a, b) => b.weight - a.weight || a.from.localeCompare(b.from) || a.to.localeCompare(b.to)),
+  };
+}
+
+// Structure only (files + symbol names): body edits keep the names valid,
+// added/removed/renamed code makes the map stale.
+function logicFingerprint(inventory) {
+  return createHash("sha256").update(JSON.stringify(inventory.files)).digest("hex").slice(0, 16);
+}
+
+// Attach unassigned files to the part they call/are called by most.
+// ponytail: greedy passes, fine for the <=9-part maps this builds.
+function assignLogicOrphans(parts, inventory) {
+  const partOf = new Map();
+  for (const part of parts) for (const file of part.files) partOf.set(file, part);
+  for (let pass = 0; pass < 3; pass += 1) {
+    let moved = false;
+    for (const { path } of inventory.files) {
+      if (partOf.has(path)) continue;
+      const score = new Map();
+      for (const link of inventory.links) {
+        const other = link.from === path ? link.to : link.to === path ? link.from : null;
+        const part = other && partOf.get(other);
+        if (part) score.set(part, (score.get(part) || 0) + link.weight);
+      }
+      const best = [...score].sort((a, b) => b[1] - a[1])[0];
+      if (best) { best[0].files.push(path); partOf.set(path, best[0]); moved = true; }
+    }
+    if (!moved) break;
+  }
+}
+
+function logicFlowWeights(parts, flows, inventory) {
+  const partOf = new Map();
+  for (const part of parts) for (const file of part.files) partOf.set(file, part.id);
+  const ids = new Set(parts.map((part) => part.id));
+  const seen = new Set();
+  const out = [];
+  for (const flow of flows || []) {
+    const from = String(flow?.from || ""), to = String(flow?.to || "");
+    if (!ids.has(from) || !ids.has(to) || from === to || seen.has(`${from}>${to}`)) continue;
+    seen.add(`${from}>${to}`);
+    let weight = 0;
+    for (const link of inventory.links) {
+      const a = partOf.get(link.from), b = partOf.get(link.to);
+      if ((a === from && b === to) || (a === to && b === from)) weight += link.weight;
+    }
+    out.push({ from, to, verb: String(flow?.verb || "").replace(/\s+/g, " ").trim().slice(0, 40), weight });
+  }
+  return out;
+}
+
+function normalizeLogicMap(raw, inventory) {
+  const known = new Set(inventory.files.map((file) => file.path));
+  const taken = new Set();
+  const parts = [];
+  for (const item of Array.isArray(raw?.parts) ? raw.parts : []) {
+    if (parts.length >= LOGIC_MAX_PARTS) break;
+    const name = String(item?.name || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    const id = String(item?.id || name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    if (!name || !id || parts.some((part) => part.id === id)) continue;
+    const files = (Array.isArray(item?.files) ? item.files : []).map(String).filter((file) => known.has(file) && !taken.has(file));
+    files.forEach((file) => taken.add(file));
+    parts.push({
+      id,
+      name,
+      emoji: Array.from(String(item?.emoji || "🧩").trim()).slice(0, 2).join("") || "🧩",
+      summary: String(item?.summary || "").replace(/\s+/g, " ").trim().slice(0, 240),
+      files,
+    });
+  }
+  assignLogicOrphans(parts, inventory);
+  const kept = parts.filter((part) => part.files.length);
+  if (!kept.length) return null;
+  return {
+    language: String(raw?.language || "").slice(0, 30),
+    fingerprint: logicFingerprint(inventory),
+    stale: false,
+    parts: kept,
+    flows: logicFlowWeights(kept, raw?.flows, inventory),
+  };
+}
+
+function carryLogicMap(prev, inventory) {
+  const known = new Set(inventory.files.map((file) => file.path));
+  const parts = (prev.parts || []).map((part) => ({ ...part, files: (part.files || []).filter((file) => known.has(file)) }));
+  assignLogicOrphans(parts, inventory);
+  const kept = parts.filter((part) => part.files.length);
+  return {
+    ...prev,
+    stale: Boolean(prev.stale) || prev.fingerprint !== logicFingerprint(inventory),
+    parts: kept,
+    flows: logicFlowWeights(kept, prev.flows, inventory),
+  };
+}
+
+function readLogicMap(d) {
+  return safeJsonParse(getMeta(d, LOGIC_META_KEY) || "null", null);
+}
+
+function logicReadmeExcerpt(cwd) {
+  for (const name of ["README.md", "readme.md", "README.markdown", "README.txt", "README"]) {
+    try { return readFileSync(join(cwd, name), "utf8").slice(0, 1500); } catch {}
+  }
+  return "";
+}
+
+function logicPrompt(inventory, readme, prev) {
+  const files = inventory.files.slice(0, 220).map((file) => `${file.path}: ${file.symbols.slice(0, 12).join(", ")}`);
+  const links = inventory.links.slice(0, 160).map((link) => `${link.from} -> ${link.to} (${link.weight})`);
+  const previous = prev ? JSON.stringify((prev.parts || []).map(({ id, emoji, name, files: owned }) => ({ id, emoji, name, files: owned }))) : "none";
+  return [
+    "You explain software to people who are not programmers (think of a curious 10-year-old). Work read-only and return JSON only.",
+    `Group the source files below into 3-${LOGIC_MAX_PARTS} PARTS that each do one understandable job, then say how the parts work together.`,
+    "Rules:",
+    "- Write every name, summary and verb in the language of the README excerpt (English if there is no README).",
+    "- Part name: 1-3 everyday words, a friendly role or metaphor (like \"The Librarian\" or \"The Front Door\"). Never use technical words such as API, database, function, module, server, cache, parser, file, class, script, SQL, JSON, CLI, hook, graph, query.",
+    "- Summary: one short sentence about what the part does for the person using the software, with no jargon.",
+    "- Flow verb: 1-4 plain words for what one part does with another (like \"asks\" or \"writes notes in\").",
+    "- Every file belongs to exactly one part; copy paths exactly. Group by purpose, not by folder. Tests go together in a part about checking the work.",
+    "- When PREVIOUS PARTS are given, keep their id, emoji and name if their job is unchanged.",
+    'Output: {"language":"...","parts":[{"id":"short-kebab-id","emoji":"one emoji","name":"...","summary":"...","files":["exact/path"]}],"flows":[{"from":"part-id","to":"part-id","verb":"..."}]}',
+    `README excerpt:\n${readme || "(none)"}`,
+    `FILES (path: main names inside):\n${files.join("\n")}`,
+    `LINKS (calls between files):\n${links.join("\n") || "(none)"}`,
+    `PREVIOUS PARTS: ${previous}`,
+  ].join("\n");
+}
+
+function refreshLogicMap(d, cwd, harness, graph, opts = {}) {
+  const inventory = logicInventory(graph);
+  if (!inventory.files.length) return { status: "no-code", map: null };
+  const prev = readLogicMap(d);
+  if (prev && !opts.force && prev.fingerprint === logicFingerprint(inventory)) return { status: "unchanged", map: prev };
+  let map = null;
+  let error = "";
+  if (harness?.available && process.env.CM_NO_LLM !== "1") {
+    const result = runHarnessPrompt(harness, logicPrompt(inventory, logicReadmeExcerpt(cwd), prev), cwd, { timeout: Number(process.env.CM_LLM_TIMEOUT_MS || 120000) });
+    map = normalizeLogicMap(result.data, inventory);
+    if (map) Object.assign(map, { model: harness.model || harness.name, generated_at: nowIso() });
+    else error = String(result.error || "invalid JSON").split("\n").pop().trim().slice(0, 200) || "invalid JSON";
+  }
+  if (!map && prev) map = carryLogicMap(prev, inventory);
+  if (!map) return { status: "needs-llm", map: null, error };
+  setMeta(d, LOGIC_META_KEY, JSON.stringify(map));
+  return { status: map.stale ? "stale" : "updated", map, error };
+}
+
+function logicStatusLine(logic) {
+  const parts = logic.map ? `${logic.map.parts.length} parts, ${logic.map.flows.length} flows` : "";
+  if (logic.status === "no-code") return "Logic view: no source code with functions/classes indexed yet (run cm update --memory --deep).";
+  if (logic.status === "needs-llm") return `Logic view: needs an LLM harness to name the parts (none available${logic.error ? `: ${logic.error}` : ""}).`;
+  if (logic.status === "stale") return `Logic view: ${parts} (code changed; names kept until an LLM harness is available).`;
+  return `Logic view: ${parts} (${logic.status}).`;
+}
+
+function printLogicMap(map) {
+  if (!map) return;
+  const byId = new Map(map.parts.map((part) => [part.id, part]));
+  console.log(`How it works${map.stale ? " (may be outdated: run with an LLM harness to rename)" : ""}:`);
+  for (const part of map.parts) console.log(`  ${part.emoji} ${part.name} — ${part.summary || ""} [${part.files.length} file(s)]`);
+  for (const flow of map.flows) {
+    const from = byId.get(flow.from), to = byId.get(flow.to);
+    console.log(`  ${from.emoji} ${from.name} → ${flow.verb} → ${to.emoji} ${to.name}`);
+  }
+}
 
 const TECH_ALIASES = {
   "typescript": "TypeScript", "ts": "TypeScript", "javascript": "JavaScript", "js": "JavaScript",
@@ -7823,12 +8060,14 @@ async function runDeepProjectUpdate(d, cwd, opts = {}) {
   const semantic = runHarnessSemanticPass(d, cwd, llmHarness, { ...inventory, nodes: loadGraphFromStore(d).nodes });
   if (semantic.attempted) console.log(`Semantic relations: ${semantic.added} evidence-bound relation(s) added${semantic.model ? ` via ${semantic.model}` : ""}.`);
   const communities = applyGraphCommunities(d, cwd);
+  const logic = refreshLogicMap(d, cwd, llmHarness, loadGraphFromStore(d));
+  console.log(logicStatusLine(logic));
   const snapshot = await refreshSnapshotMemory(d, cwd);
   refreshProjections(d, cwd);
   syncGraphProjection(d, cwd);
   const graph = loadGraphFromStore(d);
   const html2d = exportHTML(graph, cwd);
-  const html3d = export3DHTML(graph, cwd);
+  const html3d = export3DHTML(graph, cwd, logic.map);
   const report = writeGraphReport(graph, cwd);
   const visual = graphForVisualization(graph);
   console.log(`Graph complete: ${graph.nodes.length} evidence nodes, ${graph.edges.length} evidence relations, ${communities.communities} communities.`);
@@ -9506,7 +9745,7 @@ async function main() {
         const view = graphForVisualization(g);
         console.log(`Exported interactive HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "html3d" || format === "3d") {
-        const out = export3DHTML(g, c);
+        const out = export3DHTML(g, c, readLogicMap(d));
         const view = graphForVisualization(g);
         console.log(`Exported interactive 3D HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "svg") {
@@ -9524,6 +9763,21 @@ async function main() {
     if (cmd === "gs") console.log(`${g.nodes.length} nodes, ${g.edges.length} edges`);
     if (cmd === "gi") console.log(gh(g));
     if (cmd === "gs" || cmd === "gi") syncGraphProjection(d, c);
+    d.close();
+    return;
+  }
+
+  if (cmd === "logic") {
+    const { flags: lflags } = parseArgs(a.slice(1));
+    const harness = lflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
+    const logic = refreshLogicMap(d, c, harness, loadGraphFromStore(d), { force: Boolean(lflags.force) });
+    if (lflags.json) console.log(JSON.stringify(logic.map, null, 2));
+    else {
+      console.log(logicStatusLine(logic));
+      printLogicMap(logic.map);
+    }
+    const out = export3DHTML(loadGraphFromStore(d), c, logic.map);
+    if (!lflags.json) console.log(`3D graph: ${out}`);
     d.close();
     return;
   }

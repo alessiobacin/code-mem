@@ -1,0 +1,167 @@
+// A5 — plain-language "logic view" of a repository.
+//
+// WHAT IS PINNED
+//   1. logicInventory: source files come from function/class nodes
+//      (metadata.source_path); cross-file `calls` become weighted file links.
+//   2. normalizeLogicMap: LLM output is sanitised — unknown/duplicate files
+//      dropped, orphans attached to their most-linked part, empty parts and
+//      dangling/self flows removed, at most 9 parts.
+//   3. carryLogicMap: without an LLM a previous map follows file changes
+//      (removed files dropped, new files attached by links) and turns stale.
+//   4. `cm logic` + graph-3d.html: no map -> no view toggle; a stored map ->
+//      toggle and the plain-language parts embedded in the page.
+//
+// HOW
+//   1-3 evaluate the pure helpers from the shipped bundle source. 4 runs the
+//   CLI with LLMs disabled and seeds the map through cm_meta.
+
+import { test, describe, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
+
+const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+const BIN = process.env.CM_BIN || join(repoRoot, "bin", "cm");
+const bundleSource = readFileSync(BIN, "utf-8");
+
+function pick(name) {
+  const start = bundleSource.indexOf(`function ${name}(`);
+  assert.ok(start !== -1, `function ${name} must exist in the bundle`);
+  const next = bundleSource.indexOf("\nfunction ", start + 1);
+  return bundleSource.slice(start, next === -1 ? bundleSource.length : next);
+}
+
+function loadHelpers() {
+  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap"];
+  const src = `const LOGIC_MAX_PARTS = 9;\n${names.map(pick).join("\n")}\nreturn { ${names.join(", ")} };`;
+  return new Function("createHash", src)(createHash);
+}
+
+const graph = {
+  nodes: [
+    { id: "f1", type: "function", label: "saveNote", metadata: { source_path: "src/store.js" } },
+    { id: "f2", type: "function", label: "findNote", metadata: { source_path: "src/search.js" } },
+    { id: "f3", type: "function", label: "main", metadata: { source_path: "src/cli.js" } },
+    { id: "f4", type: "class", label: "Index", metadata: { source_path: "src/search.js" } },
+    { id: "d1", type: "document", label: "README", metadata: { source_path: "README.md" } },
+  ],
+  edges: [
+    { source: "f3", target: "f1", relation: "calls" },
+    { source: "f3", target: "f2", relation: "calls" },
+    { source: "f3", target: "f2", relation: "calls" },
+    { source: "f2", target: "f1", relation: "calls" },
+    { source: "f2", target: "f4", relation: "calls" },
+  ],
+};
+
+describe("A5 logic view helpers", () => {
+  const h = loadHelpers();
+
+  test("inventory lists code files and weighted cross-file links", () => {
+    const inv = h.logicInventory(graph);
+    assert.deepEqual(inv.files, [
+      { path: "src/cli.js", symbols: ["main"] },
+      { path: "src/search.js", symbols: ["Index", "findNote"] },
+      { path: "src/store.js", symbols: ["saveNote"] },
+    ]);
+    assert.deepEqual(inv.links[0], { from: "src/cli.js", to: "src/search.js", weight: 2 });
+    assert.equal(inv.links.length, 3);
+    assert.equal(h.logicFingerprint(inv), h.logicFingerprint(h.logicInventory(graph)));
+  });
+
+  test("LLM output is sanitised into a consistent map", () => {
+    const inv = h.logicInventory(graph);
+    const raw = {
+      language: "English",
+      parts: [
+        { id: "Front Door", emoji: "🚪", name: "  The   Front Door ", summary: "Takes your requests.", files: ["src/cli.js", "src/ghost.js"] },
+        { id: "notebook", emoji: "📒", name: "The Notebook", summary: "Keeps notes.", files: ["src/store.js", "src/cli.js"] },
+        { id: "empty", emoji: "❓", name: "Nobody", files: [] },
+      ],
+      flows: [
+        { from: "front-door", to: "notebook", verb: "writes in" },
+        { from: "front-door", to: "front-door", verb: "loops" },
+        { from: "front-door", to: "empty", verb: "asks" },
+      ],
+    };
+    const map = h.normalizeLogicMap(raw, inv);
+    assert.deepEqual(map.parts.map((p) => [p.id, p.name, p.files]), [
+      // search.js was not assigned by the LLM: it joins its most-linked part
+      // (2 calls from cli.js vs 1 call into store.js)
+      ["front-door", "The Front Door", ["src/cli.js", "src/search.js"]],
+      ["notebook", "The Notebook", ["src/store.js"]],
+    ]);
+    // weight = calls between the two parts' files, both directions
+    assert.deepEqual(map.flows.map((f) => [f.from, f.to, f.verb, f.weight]), [["front-door", "notebook", "writes in", 2]]);
+    assert.equal(map.stale, false);
+    assert.equal(map.fingerprint, h.logicFingerprint(inv));
+    const many = { parts: Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `Part ${i}`, files: i < 3 ? [inv.files[i].path] : [] })) };
+    assert.ok(h.normalizeLogicMap(many, inv).parts.length <= 9);
+    assert.equal(h.normalizeLogicMap({ parts: [] }, inv), null);
+  });
+
+  test("without an LLM a previous map follows file changes and turns stale", () => {
+    const prev = h.normalizeLogicMap({
+      parts: [
+        { id: "door", name: "The Front Door", files: ["src/cli.js", "src/old.js"] },
+        { id: "notebook", name: "The Notebook", files: ["src/store.js"] },
+      ],
+      flows: [{ from: "door", to: "notebook", verb: "writes in" }],
+    }, { files: [{ path: "src/cli.js", symbols: [] }, { path: "src/old.js", symbols: [] }, { path: "src/store.js", symbols: [] }], links: [] });
+    const inv = h.logicInventory(graph);
+    const map = h.carryLogicMap(prev, inv);
+    assert.equal(map.stale, true);
+    assert.equal(map.fingerprint, prev.fingerprint);
+    assert.deepEqual(map.parts.find((p) => p.id === "door").files, ["src/cli.js", "src/search.js"]);
+    assert.deepEqual(map.parts.find((p) => p.id === "notebook").files, ["src/store.js"]);
+    assert.equal(map.flows[0].weight, 2);
+  });
+});
+
+describe("A5 cm logic + 3D view toggle", () => {
+  let root;
+  before(() => { root = mkdtempSync(join(tmpdir(), "cm-a5-")); });
+  after(() => { try { rmSync(root, { recursive: true, force: true }); } catch {} });
+
+  test("toggle appears only when a logic map exists", () => {
+    const project = join(root, "project");
+    const home = join(root, "home");
+    mkdirSync(join(project, "src"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(project, "README.md"), "# Notes app\nA tiny notes app.\n");
+    writeFileSync(join(project, "src", "store.js"), "export function saveNote(n) { return n; }\n");
+    writeFileSync(join(project, "src", "cli.js"), "import { saveNote } from './store.js';\nexport function main() { return saveNote('x'); }\n");
+    const env = { ...process.env, HOME: home, CM_NO_LLM: "1", CM_NO_OLLAMA: "1", CM_LLM_HARNESS: "none" };
+    const cm = (...args) => spawnSync(process.execPath, [BIN, ...args], { cwd: project, env, encoding: "utf-8", timeout: 120000 });
+    const init = cm("init", "--deep", "--no-llm");
+    assert.equal(init.status, 0, init.stdout + init.stderr);
+    const html = () => readFileSync(join(project, "memory", "graph-3d.html"), "utf-8");
+
+    const first = cm("logic");
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    assert.match(first.stdout, /LLM/);
+    assert.doesNotMatch(html(), /id="view-toggle"/);
+
+    const d = new DatabaseSync(join(project, "memory", "state.db"));
+    const seeded = { language: "English", fingerprint: "old", stale: false, parts: [
+      { id: "door", emoji: "🚪", name: "The Front Door", summary: "Takes your requests.", files: ["src/cli.js"] },
+      { id: "notebook", emoji: "📒", name: "The Notebook", summary: "Keeps your notes safe.", files: ["src/store.js"] },
+    ], flows: [{ from: "door", to: "notebook", verb: "writes in", weight: 1 }] };
+    d.prepare("INSERT OR REPLACE INTO cm_meta(key,value) VALUES('logic_map',?)").run(JSON.stringify(seeded));
+    d.close();
+
+    const second = cm("logic");
+    assert.equal(second.status, 0, second.stdout + second.stderr);
+    assert.match(second.stdout, /The Front Door/);
+    assert.match(second.stdout, /writes in/);
+    const page = html();
+    assert.match(page, /id="view-toggle"/);
+    assert.match(page, /The Notebook/);
+    assert.match(page, /Keeps your notes safe\./);
+  });
+});

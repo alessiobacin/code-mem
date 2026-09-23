@@ -37,6 +37,7 @@ declarations are hoisted. `build/bundle.mjs` lists the canonical ORDER array.
 | `memory-ops.js` | replace/remove/consolidate/prune, acquireLock, **watchLoop** |
 | `mcp.js` | `cm mcp` stdio JSON-RPC server (memory_search/timeline/get) |
 | `graph-export.js` | communities + GraphML/Neo4j/HTML/3D HTML/SVG export |
+| `logic.js` | plain-language logic view: files grouped into named parts + flows (LLM-named, carried forward without LLM) |
 | `entities.js` | tech/entity extraction, cmdEntities, cmdHistory |
 | `workflow.js` | unified `init --deep` / `update --memory --deep` pipeline |
 | `graph-service.js` | per-user graph-service lifecycle, OS user-service integration and project registry |

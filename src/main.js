@@ -963,7 +963,7 @@ async function main() {
         const view = graphForVisualization(g);
         console.log(`Exported interactive HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "html3d" || format === "3d") {
-        const out = export3DHTML(g, c);
+        const out = export3DHTML(g, c, readLogicMap(d));
         const view = graphForVisualization(g);
         console.log(`Exported interactive 3D HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "svg") {
@@ -981,6 +981,21 @@ async function main() {
     if (cmd === "gs") console.log(`${g.nodes.length} nodes, ${g.edges.length} edges`);
     if (cmd === "gi") console.log(gh(g));
     if (cmd === "gs" || cmd === "gi") syncGraphProjection(d, c);
+    d.close();
+    return;
+  }
+
+  if (cmd === "logic") {
+    const { flags: lflags } = parseArgs(a.slice(1));
+    const harness = lflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
+    const logic = refreshLogicMap(d, c, harness, loadGraphFromStore(d), { force: Boolean(lflags.force) });
+    if (lflags.json) console.log(JSON.stringify(logic.map, null, 2));
+    else {
+      console.log(logicStatusLine(logic));
+      printLogicMap(logic.map);
+    }
+    const out = export3DHTML(loadGraphFromStore(d), c, logic.map);
+    if (!lflags.json) console.log(`3D graph: ${out}`);
     d.close();
     return;
   }

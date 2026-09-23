@@ -104,12 +104,14 @@ async function runDeepProjectUpdate(d, cwd, opts = {}) {
   const semantic = runHarnessSemanticPass(d, cwd, llmHarness, { ...inventory, nodes: loadGraphFromStore(d).nodes });
   if (semantic.attempted) console.log(`Semantic relations: ${semantic.added} evidence-bound relation(s) added${semantic.model ? ` via ${semantic.model}` : ""}.`);
   const communities = applyGraphCommunities(d, cwd);
+  const logic = refreshLogicMap(d, cwd, llmHarness, loadGraphFromStore(d));
+  console.log(logicStatusLine(logic));
   const snapshot = await refreshSnapshotMemory(d, cwd);
   refreshProjections(d, cwd);
   syncGraphProjection(d, cwd);
   const graph = loadGraphFromStore(d);
   const html2d = exportHTML(graph, cwd);
-  const html3d = export3DHTML(graph, cwd);
+  const html3d = export3DHTML(graph, cwd, logic.map);
   const report = writeGraphReport(graph, cwd);
   const visual = graphForVisualization(graph);
   console.log(`Graph complete: ${graph.nodes.length} evidence nodes, ${graph.edges.length} evidence relations, ${communities.communities} communities.`);

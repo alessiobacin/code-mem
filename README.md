@@ -128,6 +128,29 @@ After repository changes:
 cm update --memory --deep
 ```
 
+### Two views: "How it works" and "Technical"
+
+`memory/graph-3d.html` has a **💡 How it works / 🔧 Technical** switch. The
+technical view is the full evidence graph (functions, files, modules, calls)
+that agents use. "How it works" is a plain-language 3D map for people who are
+not developers: 3–9 big spheres, one per *part* of the software ("The
+Librarian", "The Front Door"), with arrows labelled by simple verbs ("hands
+notes to"). Click a part to read what it does, what it works with, and which
+files build it; "See it in the technical view" highlights those pieces.
+
+The map is derived from the code graph: source files are the units, cross-file
+calls weight the arrows, and the harness LLM groups files into parts and names
+them in the README's language. It is stored as derived data in `state.db` and
+refreshed by `cm update --memory --deep` (one LLM call, only when files or
+function/class names changed). Without an LLM the previous map follows file
+changes and is flagged "may be out of date" until the next LLM run.
+
+```bash
+cm logic            # build/refresh the map, print it, rewrite graph-3d.html
+cm logic --force    # rename everything even if the code structure is unchanged
+cm logic --json     # machine-readable map
+```
+
 ## Global local graph service
 
 The installer creates one per-user `cm-graphd` service on loopback. It serves every registered repository while keeping each project's memory database, harness settings, provider selection, and chat context isolated.
