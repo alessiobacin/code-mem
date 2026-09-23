@@ -10,12 +10,13 @@ function parseHarnessJson(raw) {
   try { return JSON.parse(object[0]); } catch { return null; }
 }
 
-function harnessCommand(harness, prompt) {
+function harnessCommand(harness, prompt, opts = {}) {
   const name = typeof harness === "string" ? harness : harness?.name;
   const binary = typeof harness === "string" ? (HARNESS_BINARIES[name] || name) : harness?.binary;
   if (!binary || !name) return null;
-  if (name === "claude") return { binary, args: ["-p", "--permission-mode", "plan", "--no-session-persistence", prompt] };
-  if (name === "pi") return { binary, args: ["-p", prompt, "--mode", "text", "--no-tools", "--no-session"] };
+  // readTools: the harness may open repository files (read-only) itself.
+  if (name === "claude") return { binary, args: ["-p", ...(opts.readTools ? ["--tools", "Read,Grep,Glob"] : []), "--permission-mode", "plan", "--no-session-persistence", prompt] };
+  if (name === "pi") return { binary, args: ["-p", prompt, "--mode", "text", ...(opts.readTools ? ["--tools", "read"] : ["--no-tools"]), "--no-session"] };
   // --skip-git-repo-check: allow read-only runs outside git repos (e.g.
   // /tmp import targets). Sandbox + ephemeral still fully apply.
   if (name === "codex") return { binary, args: ["exec", "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check", prompt] };
@@ -28,7 +29,7 @@ function harnessCommand(harness, prompt) {
 
 function runHarnessPrompt(harness, prompt, cwd, opts = {}) {
   if (process.env.CM_NO_LLM === "1" || process.env.CM_IMPORT_NO_LLM === "1") return { raw: "", data: null, skipped: true, error: "disabled" };
-  const command = harnessCommand(harness, prompt);
+  const command = harnessCommand(harness, prompt, opts);
   if (!command || !harness?.available) return { raw: "", data: null, skipped: true, error: "harness unavailable" };
   const timeout = Number(opts.timeout || process.env.CM_LLM_TIMEOUT_MS || 120000);
   try {

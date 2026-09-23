@@ -132,17 +132,24 @@ cm update --memory --deep
 
 `memory/graph-3d.html` has a **💡 How it works / 🔧 Technical** switch. The
 technical view is the full evidence graph (functions, files, modules, calls)
-that agents use. "How it works" is a plain-language 3D map for people who are
-not developers: 3–9 big spheres, one per *part* of the software ("The
-Librarian", "The Front Door"), with arrows labelled by simple verbs ("hands
-notes to"). Click a part to read what it does, what it works with, and which
-files build it; "See it in the technical view" highlights those pieces.
+that agents use. "How it works" is a plain-language 3D **flowchart** of the
+whole app for people who are not developers:
 
-The map is derived from the code graph: source files are the units, cross-file
-calls weight the arrows, and the harness LLM groups files into parts and names
-them in the README's language. It is stored as derived data in `state.db` and
-refreshed by `cm update --memory --deep` (one LLM call, only when files or
-function/class names changed). Without an LLM the previous map follows file
+- coloured zones are the *parts* of the software ("The Librarian", "The Front
+  Door"), each holding the steps it takes;
+- **journeys** ("When you ask for work") follow what happens from a trigger to
+  every ending: steps, **questions** the software asks itself (yellow diamonds,
+  one arrow per answer), places where things are kept, and endings;
+- pick a journey and its steps re-arrange top-down into a readable flowchart,
+  with the numbered steps and branches in the side panel; click a step to see
+  where it comes from and where it goes, or a part to jump to its technical
+  pieces.
+
+The map is built in two LLM passes through the project's harness, in the
+README's language: files are grouped into named parts, then the harness reads
+the code (read-only tools) and writes the flowchart. It is stored as derived
+data in `state.db` and refreshed by `cm update --memory --deep` only when files
+or function/class names changed. Without an LLM the previous map follows file
 changes and is flagged "may be out of date" until the next LLM run.
 
 ```bash

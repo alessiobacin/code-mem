@@ -142,16 +142,90 @@ function normalizeLogicMap(raw, inventory) {
   };
 }
 
+function logicSlug(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+}
+
+// Flowchart of the whole app in plain words: journeys ("When you ...") made of
+// start/step/decision/store/end nodes placed in the parts. Journey membership
+// is recomputed from the links (breadth-first from its start), so the LLM
+// cannot claim a node it never connected; unreachable nodes are dropped.
+function normalizeLogicFlow(raw, map) {
+  const kinds = new Set(["start", "step", "decision", "store", "end"]);
+  const partIds = new Set((map?.parts || []).map((part) => part.id));
+  const text = (value, max) => String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
+  const byId = new Map();
+  // Compact wire format keeps big flowcharts under the model's output cap:
+  // node = [id, kind, part, title, detail], link = "from>to|label".
+  for (const entry of Array.isArray(raw?.nodes) ? raw.nodes : []) {
+    const item = Array.isArray(entry) ? { id: entry[0], kind: entry[1], part: entry[2], title: entry[3], detail: entry[4] } : entry;
+    const id = logicSlug(item?.id);
+    const title = text(item?.title, 70);
+    if (!id || !title || byId.has(id) || byId.size >= 160) continue;
+    byId.set(id, {
+      id,
+      kind: kinds.has(item?.kind) ? item.kind : "step",
+      title,
+      detail: text(item?.detail, 320),
+      part: partIds.has(String(item?.part)) ? String(item.part) : null,
+    });
+  }
+  const links = [];
+  for (const entry of Array.isArray(raw?.links) ? raw.links : []) {
+    let item = entry;
+    if (typeof entry === "string") {
+      const [route, ...label] = entry.split("|");
+      const [from, to] = route.split(">");
+      item = { from, to, label: label.join("|") };
+    }
+    const from = logicSlug(item?.from), to = logicSlug(item?.to);
+    if (!byId.has(from) || !byId.has(to) || from === to || links.length >= 400) continue;
+    const label = text(item?.label, 40);
+    const same = links.find((link) => link.from === from && link.to === to);
+    // several answers leading to the same step become one arrow "a / b"
+    if (same) { if (label && !same.label.split(" / ").includes(label)) same.label = text(same.label ? `${same.label} / ${label}` : label, 60); continue; }
+    links.push({ from, to, label });
+  }
+  const out = new Map();
+  for (const link of links) out.set(link.from, (out.get(link.from) || []).concat(link.to));
+  for (const node of byId.values()) if (node.kind === "decision" && (out.get(node.id) || []).length < 2) node.kind = "step";
+  const journeys = [];
+  const reached = new Set();
+  for (const item of Array.isArray(raw?.journeys) ? raw.journeys : []) {
+    const id = logicSlug(item?.id || item?.title);
+    const start = logicSlug(item?.start);
+    if (!id || !byId.has(start) || journeys.some((journey) => journey.id === id) || journeys.length >= 12) continue;
+    // With an explicit step list the path is walked inside that list only.
+    const listed = Array.isArray(item?.steps) ? new Set(item.steps.map(logicSlug).filter((nodeId) => byId.has(nodeId)).concat(start)) : null;
+    const order = [start];
+    const visited = new Set(order);
+    for (let i = 0; i < order.length; i += 1) {
+      for (const next of out.get(order[i]) || []) if (!visited.has(next) && (!listed || listed.has(next))) { visited.add(next); order.push(next); }
+    }
+    if (order.length < 2) continue;
+    order.forEach((nodeId) => reached.add(nodeId));
+    journeys.push({ id, title: text(item?.title, 80) || id, summary: text(item?.summary, 240), start, nodes: order });
+  }
+  if (!journeys.length) return null;
+  return {
+    journeys,
+    nodes: [...byId.values()].filter((node) => reached.has(node.id)),
+    links: links.filter((link) => reached.has(link.from) && reached.has(link.to)),
+  };
+}
+
 function carryLogicMap(prev, inventory) {
   const known = new Set(inventory.files.map((file) => file.path));
   const parts = (prev.parts || []).map((part) => ({ ...part, files: (part.files || []).filter((file) => known.has(file)) }));
   assignLogicOrphans(parts, inventory);
   const kept = parts.filter((part) => part.files.length);
+  const keptIds = new Set(kept.map((part) => part.id));
   return {
     ...prev,
     stale: Boolean(prev.stale) || prev.fingerprint !== logicFingerprint(inventory),
     parts: kept,
     flows: logicFlowWeights(kept, prev.flows, inventory),
+    flow: prev.flow ? { ...prev.flow, nodes: prev.flow.nodes.map((node) => ({ ...node, part: keptIds.has(node.part) ? node.part : null })) } : undefined,
   };
 }
 
@@ -192,18 +266,59 @@ function logicPrompt(inventory, readme, prev) {
   ].join("\n");
 }
 
+function logicFlowPrompt(inventory, readme, map) {
+  const parts = map.parts.map((part) => `${part.id} = ${part.emoji} ${part.name}: ${part.summary} [files: ${part.files.slice(0, 40).join(", ")}${part.files.length > 40 ? ", ..." : ""}]`);
+  return [
+    "You write the \"How it works\" flowchart of this software for people who are not programmers. Work read-only and return JSON only.",
+    "Open and read the source files (use your read tool; start from entry points such as main files, commands, routes, pages, handlers) until you understand what the software really does and which choices it makes.",
+    "Describe 4-10 JOURNEYS. A journey starts from something that happens (a person runs a command, opens a page, clicks a button, a timer fires, a message arrives) and follows every step until it ends.",
+    "Include all important DECISIONS the software takes (questions like \"Is this note already saved?\"), with one link per possible answer, the places where things are KEPT, and every ENDING (done, error, refused, stopped).",
+    "Rules:",
+    map.language
+      ? `- Write EVERY title, summary, detail and label in this language: ${map.language} (the same language as the PART names below), even though the code is written in English.`
+      : "- Write every title, detail and label in the language of the README excerpt (English if there is no README).",
+    "- Titles: 2-7 plain words that say what happens, not how it is coded. A decision title is a question ending with \"?\". Never use technical words such as API, database, function, module, server, endpoint, request, cache, parser, file, class, script, SQL, JSON, CLI, token, hook, query, handler, array.",
+    "- detail: one short plain sentence (at most 20 words) a curious 10-year-old understands.",
+    "- kind: start (what begins a journey), step (something the software does), decision (a question with 2+ answers), store (where things are kept), end (where a journey stops).",
+    "- Every node belongs to one PART id from the list below. Reuse the same node when journeys share a step.",
+    "- links go from a node to the next one (\"from>to\"); every link leaving a decision has a short answer label after |  (\"yes\", \"no\", \"only the first time\").",
+    "- Aim for 40-90 nodes in total so the whole logic is visible, not a summary. Use short ids like n1, n2.",
+    "- Keep the output compact (it must fit in one reply): nodes as arrays, links as strings, no extra text.",
+    "- Each journey lists its own steps in order (\"steps\"), 6-25 of them: only the nodes of that journey, including every branch it can take.",
+    'Output: {"journeys":[{"id":"kebab-id","title":"When you ...","summary":"one sentence","start":"n1","steps":["n1","n2"]}],"nodes":[["n1","start|step|decision|store|end","part-id","title","detail"]],"links":["n1>n2","n2>n3|yes","n2>n4|no"]}',
+    `PARTS:\n${parts.join("\n")}`,
+    `README excerpt:\n${readme || "(none)"}`,
+    `SOURCE (path: main names inside):\n${logicUnits(inventory).slice(0, LOGIC_MAX_UNITS).map((unit) => `${unit.key}: ${unit.symbols.slice(0, 10).join(", ")}`).join("\n")}`,
+  ].join("\n");
+}
+
 function refreshLogicMap(d, cwd, harness, graph, opts = {}) {
   const inventory = logicInventory(graph);
   if (!inventory.files.length) return { status: "no-code", map: null };
   const prev = readLogicMap(d);
-  if (prev && !opts.force && prev.fingerprint === logicFingerprint(inventory)) return { status: "unchanged", map: prev };
-  let map = null;
+  const llm = Boolean(harness?.available) && process.env.CM_NO_LLM !== "1";
+  const same = prev && !opts.force && prev.fingerprint === logicFingerprint(inventory);
+  if (same && (prev.flow || !llm)) return { status: "unchanged", map: prev };
+  let map = same ? prev : null;
   let error = "";
-  if (harness?.available && process.env.CM_NO_LLM !== "1") {
+  if (!map && llm) {
     const result = runHarnessPrompt(harness, logicPrompt(inventory, logicReadmeExcerpt(cwd), prev), cwd, { timeout: Number(process.env.CM_LLM_TIMEOUT_MS || 120000) });
     map = normalizeLogicMap(result.data, inventory);
     if (map) Object.assign(map, { model: harness.model || harness.name, generated_at: nowIso() });
     else error = String(result.error || "invalid JSON").split("\n").pop().trim().slice(0, 200) || "invalid JSON";
+  }
+  if (map && llm && (!map.flow || map !== prev)) {
+    // Second pass: the harness reads the code (read-only tools) and returns
+    // the flowchart. Parts stay usable when this pass fails.
+    // One retry: proxied providers fail transiently (e.g. 402 then fallback).
+    let result = null;
+    let flow = null;
+    for (let attempt = 0; attempt < 2 && !flow; attempt += 1) {
+      result = runHarnessPrompt(harness, logicFlowPrompt(inventory, logicReadmeExcerpt(cwd), map), cwd, { readTools: true, timeout: Number(process.env.CM_LOGIC_FLOW_TIMEOUT_MS || 900000) });
+      flow = normalizeLogicFlow(result.data, map);
+    }
+    if (flow) map = { ...map, flow };
+    else error = String(result.error || "flowchart: invalid JSON").split("\n").pop().trim().slice(0, 200) || "flowchart: invalid JSON";
   }
   if (!map && prev) map = carryLogicMap(prev, inventory);
   if (!map) return { status: "needs-llm", map: null, error };
@@ -212,11 +327,12 @@ function refreshLogicMap(d, cwd, harness, graph, opts = {}) {
 }
 
 function logicStatusLine(logic) {
-  const parts = logic.map ? `${logic.map.parts.length} parts, ${logic.map.flows.length} flows` : "";
+  const flow = logic.map?.flow ? `, ${logic.map.flow.journeys.length} journeys, ${logic.map.flow.nodes.length} steps` : "";
+  const parts = logic.map ? `${logic.map.parts.length} parts, ${logic.map.flows.length} flows${flow}` : "";
   if (logic.status === "no-code") return "Logic view: no source code with functions/classes indexed yet (run cm update --memory --deep).";
   if (logic.status === "needs-llm") return `Logic view: needs an LLM harness to name the parts (none available${logic.error ? `: ${logic.error}` : ""}).`;
   if (logic.status === "stale") return `Logic view: ${parts} (code changed; names kept until an LLM harness is available).`;
-  return `Logic view: ${parts} (${logic.status}).`;
+  return `Logic view: ${parts} (${logic.status}${logic.error ? `; ${logic.error}` : ""}).`;
 }
 
 function printLogicMap(map) {
@@ -228,4 +344,5 @@ function printLogicMap(map) {
     const from = byId.get(flow.from), to = byId.get(flow.to);
     console.log(`  ${from.emoji} ${from.name} → ${flow.verb} → ${to.emoji} ${to.name}`);
   }
+  for (const journey of map.flow?.journeys || []) console.log(`  ▶ ${journey.title} (${journey.nodes.length} steps)`);
 }

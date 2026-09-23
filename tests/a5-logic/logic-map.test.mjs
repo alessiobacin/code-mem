@@ -37,7 +37,7 @@ function pick(name) {
 }
 
 function loadHelpers() {
-  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap", "logicUnits"];
+  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap", "logicUnits", "logicSlug", "normalizeLogicFlow"];
   const src = `const LOGIC_MAX_PARTS = 9;\nconst LOGIC_MAX_UNITS = 120;\n${names.map(pick).join("\n")}\nreturn { ${names.join(", ")} };`;
   return new Function("createHash", src)(createHash);
 }
@@ -120,6 +120,64 @@ describe("A5 logic view helpers", () => {
     assert.equal(map.parts[1].files.length, 66);
     const small = h.logicUnits(h.logicInventory(graph));
     assert.deepEqual(small.map((u) => u.key), ["src/cli.js", "src/search.js", "src/store.js"]);
+  });
+
+  test("flowchart: journeys, decisions with branches, reachable nodes only", () => {
+    const map = { parts: [{ id: "door", files: [] }, { id: "notebook", files: [] }] };
+    const raw = {
+      journeys: [
+        { id: "Save A Note", title: "When you save a note", summary: "What happens to a new note.", start: "write" },
+        { id: "ghost", title: "Broken", start: "nowhere" },
+      ],
+      nodes: [
+        { id: "write", kind: "start", title: "You write a note", detail: "You type something to remember.", part: "door" },
+        { id: "known", kind: "decision", title: "Is it already known?", part: "notebook" },
+        { id: "keep", kind: "store", title: "Kept in the notebook", part: "notebook" },
+        { id: "skip", kind: "end", title: "Nothing new to keep", part: "unknown-part" },
+        { id: "lonely", kind: "decision", title: "Only one way out?", part: "notebook" },
+        { id: "orphan", kind: "step", title: "Never reached", part: "door" },
+        { id: "known", kind: "step", title: "Duplicate id", part: "door" },
+      ],
+      links: [
+        { from: "write", to: "known" },
+        { from: "known", to: "keep", label: "no" },
+        { from: "known", to: "skip", label: "yes" },
+        { from: "known", to: "skip", label: "maybe" },
+        { from: "keep", to: "lonely" },
+        { from: "lonely", to: "skip", label: "" },
+        { from: "write", to: "ghost-node" },
+        { from: "write", to: "write" },
+        { from: "write", to: "known" },
+      ],
+    };
+    const flow = h.normalizeLogicFlow(raw, map);
+    assert.deepEqual(flow.journeys.map((j) => [j.id, j.nodes]), [["save-a-note", ["write", "known", "keep", "skip", "lonely"]]]);
+    const kinds = Object.fromEntries(flow.nodes.map((n) => [n.id, [n.kind, n.part]]));
+    assert.deepEqual(kinds, {
+      write: ["start", "door"],
+      known: ["decision", "notebook"],
+      keep: ["store", "notebook"],
+      skip: ["end", null],
+      lonely: ["step", "notebook"], // a decision with a single way out is just a step
+    });
+    assert.deepEqual(flow.links.map((l) => [l.from, l.to, l.label]), [
+      ["write", "known", ""], ["known", "keep", "no"], ["known", "skip", "yes / maybe"], ["keep", "lonely", ""], ["lonely", "skip", ""],
+    ]);
+    assert.equal(h.normalizeLogicFlow({ journeys: [], nodes: [], links: [] }, map), null);
+    // compact form (arrays + "from>to|label" strings) gives the same flowchart
+    const compact = h.normalizeLogicFlow({
+      journeys: raw.journeys,
+      nodes: raw.nodes.map((n) => [n.id, n.kind, n.part, n.title, n.detail || ""]),
+      links: raw.links.map((l) => `${l.from}>${l.to}${l.label ? `|${l.label}` : ""}`),
+    }, map);
+    assert.deepEqual(compact, flow);
+    // explicit steps keep a journey to its own path instead of spilling into
+    // other journeys through shared steps
+    const listed = h.normalizeLogicFlow({ ...raw, journeys: [
+      { id: "save", title: "Save", start: "write", steps: ["write", "known", "keep", "nowhere"] },
+      { id: "check", title: "Check", start: "keep", steps: ["keep", "lonely", "skip"] },
+    ] }, map);
+    assert.deepEqual(listed.journeys.map((j) => [j.id, j.nodes]), [["save", ["write", "known", "keep"]], ["check", ["keep", "lonely", "skip"]]]);
   });
 
   test("without an LLM a previous map follows file changes and turns stale", () => {
