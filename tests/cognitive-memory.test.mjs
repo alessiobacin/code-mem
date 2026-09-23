@@ -24,6 +24,8 @@ function dbQuery(project, sql, ...params) {
   const script = `
     const { DatabaseSync } = require("node:sqlite");
     const d = new DatabaseSync(process.argv[1]);
+    // hooks spawn a background graph refresh that may still be writing
+    d.exec("PRAGMA busy_timeout=30000");
     const row = d.prepare(process.argv[2]).get(...JSON.parse(process.argv[3] || "[]"));
     console.log(JSON.stringify(row || null));
     d.close();
