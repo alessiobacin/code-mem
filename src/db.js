@@ -10,7 +10,7 @@ function od(p) {
   // failing with SQLITE_BUSY; the explicit graph-refresh lock coordinates the
   // normal path, while busy_timeout covers unavoidable process scheduling
   // races.
-  d.exec("PRAGMA page_size=512; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000");
+  d.exec("PRAGMA page_size=4096; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000");
   d.exec(`
     CREATE TABLE IF NOT EXISTS messages(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,6 +239,7 @@ function ensureRecallIndexes(d) {
   // Performance indexes for recall queries
   const indexes = [
     "CREATE INDEX IF NOT EXISTS idx_memory_items_status_kind ON memory_items(status, kind)",
+    "CREATE INDEX IF NOT EXISTS idx_memory_links_target ON memory_links(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_belief_status ON memory_items(belief_status, status)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_validity ON memory_items(valid_from, valid_to)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_status_updated ON memory_items(status, updated_at)",
@@ -277,15 +278,24 @@ function withTransaction(d, fn) {
   }
 }
 
-function runStmt(d, sql, params = []) {
-  return d.prepare(sql).run(...params);
+function cachedStmt(d, sql) {
+  // ponytail: whole cache dropped at 256 entries (dynamic IN (...) lists
+  // mint new SQL); switch to LRU if hit rate ever matters.
+  let cache = d.__cmStmts;
+  if (!cache || cache.size >= 256) cache = d.__cmStmts = new Map();
+  let stmt = cache.get(sql);
+  if (!stmt) { stmt = d.prepare(sql); cache.set(sql, stmt); }
+  return stmt;
 }
 
+function runStmt(d, sql, params = []) {
+  return cachedStmt(d, sql).run(...params);
+}
 
 function allStmt(d, sql, params = []) {
-  return d.prepare(sql).all(...params);
+  return cachedStmt(d, sql).all(...params);
 }
 
 function getStmt(d, sql, params = []) {
-  return d.prepare(sql).get(...params);
+  return cachedStmt(d, sql).get(...params);
 }

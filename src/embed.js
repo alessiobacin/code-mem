@@ -1,21 +1,36 @@
+let ollamaProbe = null;
+
+function ollamaProbeCachePath() {
+  const uid = typeof process.getuid === "function" ? process.getuid() : "u";
+  return join(require("os").tmpdir(), `cm-ollama-probe-${uid}.json`);
+}
+
 // Sync Ollama probe without a shell: execFileSync passes argv directly, so
 // OLLAMA_BASE can never be interpolated into a shell command (IMP-08).
 function checkOllama() {
   if (process.env.CM_NO_LLM === "1" || process.env.CM_NO_OLLAMA === "1") return false;
+  if (ollamaProbe !== null) return ollamaProbe;
+  // Every recall/save used to spawn two blocking curls (~150ms, up to 6s on a
+  // hung daemon). Share the result across processes for a short TTL.
+  const cachePath = ollamaProbeCachePath();
   try {
-    const status = execFileSync(
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
+    if (cached.base === OLLAMA_BASE && cached.model === EMBED_MODEL && Date.now() - cached.at < 60000) {
+      return (ollamaProbe = cached.ok === true);
+    }
+  } catch {}
+  let ok = false;
+  try {
+    const out = execFileSync(
       "curl",
-      ["-s", "-o", "/dev/null", "-w", "%{http_code}", `${OLLAMA_BASE}/api/tags`],
-      { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, encoding: "utf-8" }
+      ["-s", "--connect-timeout", "1", "--max-time", "3", "-w", "\n%{http_code}", `${OLLAMA_BASE}/api/tags`],
+      { stdio: ["ignore", "pipe", "ignore"], timeout: 4000, encoding: "utf-8" }
     ).trim();
-    if (status !== "200") return false;
-    const list = execFileSync("curl", ["-s", `${OLLAMA_BASE}/api/tags`], {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 3000,
-      encoding: "utf-8",
-    }).trim();
-    return list.includes(EMBED_MODEL);
-  } catch { return false; }
+    const nl = out.lastIndexOf("\n");
+    ok = out.slice(nl + 1) === "200" && out.slice(0, nl).includes(EMBED_MODEL);
+  } catch {}
+  try { writeFileSync(cachePath, JSON.stringify({ base: OLLAMA_BASE, model: EMBED_MODEL, ok, at: Date.now() })); } catch {}
+  return (ollamaProbe = ok);
 }
 
 function computeEmbedding(text) {

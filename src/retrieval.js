@@ -2,7 +2,7 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   const text = `${row.title} ${row.body} ${row.summary || ""}`.toLowerCase();
   const queryWords = tokenizeQuery(task).filter((word) => word.length > 2);
   let keywordHits = 0;
-  for (const word of queryWords) if (text.includes(word)) keywordHits += 1;
+  for (const word of queryWords) if (containsWordPrefix(text, word)) keywordHits += 1;
   const keywordScore = queryWords.length ? keywordHits / queryWords.length : 0;
   const conceptScore = scoreConceptCoverage(row, queryWords);
   const graphConceptScore = scoreConceptCoverage(row, plan.graphTerms || []);
@@ -181,6 +181,21 @@ function countLinksForMemory(d, id) {
   return Math.min(1, (row?.count || 0) / 5);
 }
 
+// Same matching contract as the FTS5 candidate query (`"word"*`): a term hits
+// only at a word start, with `_` and punctuation as separators, so "api"
+// matches "apis" / "my_api" but not "rapid". `text` must be lowercased.
+function containsWordPrefix(text, word) {
+  const cache = containsWordPrefix.cache || (containsWordPrefix.cache = new Map());
+  let re = cache.get(word);
+  if (!re) {
+    if (cache.size >= 512) cache.clear();
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    re = new RegExp("(?:^|[^a-z0-9])" + escaped);
+    cache.set(word, re);
+  }
+  return re.test(text);
+}
+
 function tokenizeQuery(task) {
   return String(task || "")
     .toLowerCase()
@@ -304,7 +319,7 @@ function scoreConceptCoverage(row, terms) {
     .toLowerCase();
   let matches = 0;
   for (const term of terms) {
-    if (term && text.includes(term)) matches += 1;
+    if (term && containsWordPrefix(text, term)) matches += 1;
   }
   return matches / terms.length;
 }

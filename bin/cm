@@ -24,7 +24,7 @@ const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.8.1";
+const VERSION = "0.8.2";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -480,7 +480,7 @@ function od(p) {
   // failing with SQLITE_BUSY; the explicit graph-refresh lock coordinates the
   // normal path, while busy_timeout covers unavoidable process scheduling
   // races.
-  d.exec("PRAGMA page_size=512; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000");
+  d.exec("PRAGMA page_size=4096; PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000");
   d.exec(`
     CREATE TABLE IF NOT EXISTS messages(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -709,6 +709,7 @@ function ensureRecallIndexes(d) {
   // Performance indexes for recall queries
   const indexes = [
     "CREATE INDEX IF NOT EXISTS idx_memory_items_status_kind ON memory_items(status, kind)",
+    "CREATE INDEX IF NOT EXISTS idx_memory_links_target ON memory_links(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_belief_status ON memory_items(belief_status, status)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_validity ON memory_items(valid_from, valid_to)",
     "CREATE INDEX IF NOT EXISTS idx_memory_items_status_updated ON memory_items(status, updated_at)",
@@ -747,17 +748,26 @@ function withTransaction(d, fn) {
   }
 }
 
-function runStmt(d, sql, params = []) {
-  return d.prepare(sql).run(...params);
+function cachedStmt(d, sql) {
+  // ponytail: whole cache dropped at 256 entries (dynamic IN (...) lists
+  // mint new SQL); switch to LRU if hit rate ever matters.
+  let cache = d.__cmStmts;
+  if (!cache || cache.size >= 256) cache = d.__cmStmts = new Map();
+  let stmt = cache.get(sql);
+  if (!stmt) { stmt = d.prepare(sql); cache.set(sql, stmt); }
+  return stmt;
 }
 
+function runStmt(d, sql, params = []) {
+  return cachedStmt(d, sql).run(...params);
+}
 
 function allStmt(d, sql, params = []) {
-  return d.prepare(sql).all(...params);
+  return cachedStmt(d, sql).all(...params);
 }
 
 function getStmt(d, sql, params = []) {
-  return d.prepare(sql).get(...params);
+  return cachedStmt(d, sql).get(...params);
 }
 
 // Cognitive memory spine: additive evidence, provenance, temporal belief
@@ -1941,24 +1951,39 @@ function scanRepositoryInventory(cwd, opts = {}) {
   return { nodes, edges, files, directories, headings, rootId };
 }
 
+let ollamaProbe = null;
+
+function ollamaProbeCachePath() {
+  const uid = typeof process.getuid === "function" ? process.getuid() : "u";
+  return join(require("os").tmpdir(), `cm-ollama-probe-${uid}.json`);
+}
+
 // Sync Ollama probe without a shell: execFileSync passes argv directly, so
 // OLLAMA_BASE can never be interpolated into a shell command (IMP-08).
 function checkOllama() {
   if (process.env.CM_NO_LLM === "1" || process.env.CM_NO_OLLAMA === "1") return false;
+  if (ollamaProbe !== null) return ollamaProbe;
+  // Every recall/save used to spawn two blocking curls (~150ms, up to 6s on a
+  // hung daemon). Share the result across processes for a short TTL.
+  const cachePath = ollamaProbeCachePath();
   try {
-    const status = execFileSync(
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
+    if (cached.base === OLLAMA_BASE && cached.model === EMBED_MODEL && Date.now() - cached.at < 60000) {
+      return (ollamaProbe = cached.ok === true);
+    }
+  } catch {}
+  let ok = false;
+  try {
+    const out = execFileSync(
       "curl",
-      ["-s", "-o", "/dev/null", "-w", "%{http_code}", `${OLLAMA_BASE}/api/tags`],
-      { stdio: ["ignore", "pipe", "ignore"], timeout: 3000, encoding: "utf-8" }
+      ["-s", "--connect-timeout", "1", "--max-time", "3", "-w", "\n%{http_code}", `${OLLAMA_BASE}/api/tags`],
+      { stdio: ["ignore", "pipe", "ignore"], timeout: 4000, encoding: "utf-8" }
     ).trim();
-    if (status !== "200") return false;
-    const list = execFileSync("curl", ["-s", `${OLLAMA_BASE}/api/tags`], {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 3000,
-      encoding: "utf-8",
-    }).trim();
-    return list.includes(EMBED_MODEL);
-  } catch { return false; }
+    const nl = out.lastIndexOf("\n");
+    ok = out.slice(nl + 1) === "200" && out.slice(0, nl).includes(EMBED_MODEL);
+  } catch {}
+  try { writeFileSync(cachePath, JSON.stringify({ base: OLLAMA_BASE, model: EMBED_MODEL, ok, at: Date.now() })); } catch {}
+  return (ollamaProbe = ok);
 }
 
 function computeEmbedding(text) {
@@ -4154,7 +4179,7 @@ function scoreMemory(row, plan, task, cwd, level, semanticScore) {
   const text = `${row.title} ${row.body} ${row.summary || ""}`.toLowerCase();
   const queryWords = tokenizeQuery(task).filter((word) => word.length > 2);
   let keywordHits = 0;
-  for (const word of queryWords) if (text.includes(word)) keywordHits += 1;
+  for (const word of queryWords) if (containsWordPrefix(text, word)) keywordHits += 1;
   const keywordScore = queryWords.length ? keywordHits / queryWords.length : 0;
   const conceptScore = scoreConceptCoverage(row, queryWords);
   const graphConceptScore = scoreConceptCoverage(row, plan.graphTerms || []);
@@ -4333,6 +4358,21 @@ function countLinksForMemory(d, id) {
   return Math.min(1, (row?.count || 0) / 5);
 }
 
+// Same matching contract as the FTS5 candidate query (`"word"*`): a term hits
+// only at a word start, with `_` and punctuation as separators, so "api"
+// matches "apis" / "my_api" but not "rapid". `text` must be lowercased.
+function containsWordPrefix(text, word) {
+  const cache = containsWordPrefix.cache || (containsWordPrefix.cache = new Map());
+  let re = cache.get(word);
+  if (!re) {
+    if (cache.size >= 512) cache.clear();
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    re = new RegExp("(?:^|[^a-z0-9])" + escaped);
+    cache.set(word, re);
+  }
+  return re.test(text);
+}
+
 function tokenizeQuery(task) {
   return String(task || "")
     .toLowerCase()
@@ -4456,7 +4496,7 @@ function scoreConceptCoverage(row, terms) {
     .toLowerCase();
   let matches = 0;
   for (const term of terms) {
-    if (term && text.includes(term)) matches += 1;
+    if (term && containsWordPrefix(text, term)) matches += 1;
   }
   return matches / terms.length;
 }
