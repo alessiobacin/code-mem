@@ -1,0 +1,129 @@
+{
+  "repo": "/private/tmp/claude-501/-Users-alessiobacin-Development-Code-code-mem/0629c3d8-3606-44ed-a75d-af4988d7120a/scratchpad/bench/yano-flash",
+  "budget": 2000,
+  "date": "2026-09-25T11:24:39.992Z",
+  "sets": {
+    "A code-comment": {
+      "n": 25,
+      "systems": {
+        "graphify": {
+          "hit1": 0.08,
+          "hit3": 0.32,
+          "hit5": 0.48,
+          "hit_any": 0.84,
+          "chance5": 0,
+          "mrr": 0.262,
+          "files_cited_median": 16,
+          "tokens_median": 1510,
+          "ms_median": 144
+        },
+        "cm-query": {
+          "hit1": 0.12,
+          "hit3": 0.28,
+          "hit5": 0.4,
+          "hit_any": 0.72,
+          "chance5": 0,
+          "mrr": 0.251,
+          "files_cited_median": 9,
+          "tokens_median": 2016,
+          "ms_median": 109
+        },
+        "cm-recall": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0,
+          "hit_any": 0,
+          "chance5": 0,
+          "mrr": 0,
+          "files_cited_median": 8,
+          "tokens_median": 779,
+          "ms_median": 274
+        }
+      },
+      "misses": {
+        "graphify": [
+          "Domanda sì/no su stdin (una riga).",
+          "Intersezione needs ∩ reale per ruolo: ok si usa, missing si dichiara.",
+          "Upsert: aggiorna le chiavi date, preserva le altre.",
+          "Una riga per la lista nel prompt del planner.",
+          "true se il progetto ha già un .yf/config.json: re-init senza --force rifiutato."
+        ],
+        "cm-query": [
+          "Domanda sì/no su stdin (una riga).",
+          "Upsert: aggiorna le chiavi date, preserva le altre.",
+          "Seam per i test: integrazione git senza toccare il filesystem.",
+          "Una riga per la lista nel prompt del planner.",
+          "true se il progetto ha già un .yf/config.json: re-init senza --force rifiutato."
+        ],
+        "cm-recall": [
+          "Domanda sì/no su stdin (una riga).",
+          "Intersezione needs ∩ reale per ruolo: ok si usa, missing si dichiara.",
+          "Upsert: aggiorna le chiavi date, preserva le altre.",
+          "Seam per i test: integrazione git senza toccare il filesystem.",
+          "Start, retrying a busy pane; on a taken name try `-2`, `-3`… Returns the name actually used."
+        ]
+      }
+    },
+    "C doc-sentence": {
+      "n": 25,
+      "systems": {
+        "graphify": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0,
+          "hit_any": 0,
+          "chance5": 0,
+          "mrr": 0,
+          "files_cited_median": 14,
+          "tokens_median": 1510,
+          "ms_median": 142
+        },
+        "cm-query": {
+          "hit1": 0.04,
+          "hit3": 0.12,
+          "hit5": 0.16,
+          "hit_any": 0.16,
+          "chance5": 0,
+          "mrr": 0.09,
+          "files_cited_median": 8,
+          "tokens_median": 2016,
+          "ms_median": 116
+        },
+        "cm-recall": {
+          "hit1": 0.16,
+          "hit3": 0.44,
+          "hit5": 0.6,
+          "hit_any": 0.72,
+          "chance5": 0.08,
+          "mrr": 0.31,
+          "files_cited_median": 8,
+          "tokens_median": 786,
+          "ms_median": 274
+        }
+      },
+      "misses": {
+        "graphify": [
+          "Run the complete Code-Mem repository update from this project root:",
+          "Decisions locked (grill Q1–Q19): - Gate umano dopo chiarimento + bundle unico team/LLM/playbook, poi autonomo.",
+          "Decisions locked (grill Q6/Q11/Q17/Q18): - Frammento = unità riusabile minima; mai monoliti per task; salvataggio scomposto.",
+          "Decisions locked (grill Q15): - Progetto = architettura generale (ARCH.md); ruolo = lezioni operative proprie.",
+          "Decisions locked (grill Q7/Q14): - Team deciso+usato una volta → riusato sempre uguale dopo (congelato)."
+        ],
+        "cm-query": [
+          "Run the complete Code-Mem repository update from this project root:",
+          "Decisions locked (grill Q1–Q19): - Gate umano dopo chiarimento + bundle unico team/LLM/playbook, poi autonomo.",
+          "Decisions locked (grill Q6/Q11/Q17/Q18): - Frammento = unità riusabile minima; mai monoliti per task; salvataggio scomposto.",
+          "Decisions locked (grill Q15): - Progetto = architettura generale (ARCH.md); ruolo = lezioni operative proprie.",
+          "Decisions locked (grill Q7/Q14): - Team deciso+usato una volta → riusato sempre uguale dopo (congelato)."
+        ],
+        "cm-recall": [
+          "Run the complete Code-Mem repository update from this project root:",
+          "Decisions locked (grill Q1–Q19): - Gate umano dopo chiarimento + bundle unico team/LLM/playbook, poi autonomo.",
+          "Decisions locked (grill Q6/Q11/Q17/Q18): - Frammento = unità riusabile minima; mai monoliti per task; salvataggio scomposto.",
+          "Decisions locked (grill Q15): - Progetto = architettura generale (ARCH.md); ruolo = lezioni operative proprie.",
+          "Decisions locked (grill Q7/Q14): - Team deciso+usato una volta → riusato sempre uguale dopo (congelato)."
+        ]
+      }
+    }
+  }
+}

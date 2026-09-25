@@ -1,0 +1,190 @@
+{
+  "repo": "/private/tmp/claude-501/-Users-alessiobacin-Development-Code-code-mem/0629c3d8-3606-44ed-a75d-af4988d7120a/scratchpad/bench/code-mem",
+  "budget": 2000,
+  "date": "2026-09-25T11:23:50.494Z",
+  "sets": {
+    "A code-comment": {
+      "n": 25,
+      "systems": {
+        "graphify": {
+          "hit1": 0.04,
+          "hit3": 0.08,
+          "hit5": 0.12,
+          "hit_any": 0.64,
+          "chance5": 0,
+          "mrr": 0.122,
+          "files_cited_median": 13,
+          "tokens_median": 1510,
+          "ms_median": 147
+        },
+        "cm-query": {
+          "hit1": 0.2,
+          "hit3": 0.32,
+          "hit5": 0.36,
+          "hit_any": 0.64,
+          "chance5": 0,
+          "mrr": 0.275,
+          "files_cited_median": 29,
+          "tokens_median": 2016,
+          "ms_median": 123
+        },
+        "cm-recall": {
+          "hit1": 0,
+          "hit3": 0.04,
+          "hit5": 0.04,
+          "hit_any": 0.04,
+          "chance5": 0,
+          "mrr": 0.013,
+          "files_cited_median": 10,
+          "tokens_median": 737,
+          "ms_median": 298
+        }
+      },
+      "misses": {
+        "graphify": [
+          "Stable per-project session id, overridable via CM_SESSION_ID.",
+          "High-frequency hook used by `cm save --auto`: records what dev/agent just wrote (a task, a correction, a note) as a conversation row, no explicit `cm save` needed elsewhere.",
+          "Daemon heartbeat: the watch loop records a periodic tick so the messages log shows the daemon was alive and what it observed.",
+          "Applied once at startup, before any setting is read.",
+          "Converted media notes are labelled \"name.ext (kind via tool)\": prefer the document's own first heading, else the bare file name."
+        ],
+        "cm-query": [
+          "High-frequency hook used by `cm save --auto`: records what dev/agent just wrote (a task, a correction, a note) as a conversation row, no explicit `cm save` needed elsewhere.",
+          "Applied once at startup, before any setting is read.",
+          "A2a: wrap a multi-statement sequence in an explicit SQLite transaction.",
+          "Converted media notes are labelled \"name.ext (kind via tool)\": prefer the document's own first heading, else the bare file name.",
+          "─── Narrative graph report (graphify GRAPH_REPORT.md parity) ───────────── Deterministic: god nodes (degree), surprising connections (edges crossing community boundaries, INFERRED first), suggested questions (hub + bridg"
+        ],
+        "cm-recall": [
+          "Stable per-project session id, overridable via CM_SESSION_ID.",
+          "High-frequency hook used by `cm save --auto`: records what dev/agent just wrote (a task, a correction, a note) as a conversation row, no explicit `cm save` needed elsewhere.",
+          "Daemon heartbeat: the watch loop records a periodic tick so the messages log shows the daemon was alive and what it observed.",
+          "Applied once at startup, before any setting is read.",
+          "A2a: wrap a multi-statement sequence in an explicit SQLite transaction."
+        ]
+      }
+    },
+    "C doc-sentence": {
+      "n": 25,
+      "systems": {
+        "graphify": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0,
+          "hit_any": 0,
+          "chance5": 0,
+          "mrr": 0,
+          "files_cited_median": 13,
+          "tokens_median": 1510,
+          "ms_median": 151
+        },
+        "cm-query": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0.12,
+          "hit_any": 0.48,
+          "chance5": 0,
+          "mrr": 0.048,
+          "files_cited_median": 30,
+          "tokens_median": 2016,
+          "ms_median": 125
+        },
+        "cm-recall": {
+          "hit1": 0,
+          "hit3": 0.2,
+          "hit5": 0.36,
+          "hit_any": 0.88,
+          "chance5": 0.08,
+          "mrr": 0.17,
+          "files_cited_median": 9,
+          "tokens_median": 728,
+          "ms_median": 291
+        }
+      },
+      "misses": {
+        "graphify": [
+          "Run the complete Code-Mem repository update from this project root:",
+          "This directory is organized by purpose.",
+          "Goal: find the most relevant memories for a task by combining deterministic search, graph context and optional embeddings, with a local fallback always available.",
+          "Goal: verify that cm initializes project memory and exposes the public CLI.",
+          "Acceptance checks: duplicate edges are rejected, neighbors and paths are readable, graph statistics report nodes/edges, community detection completes, and each requested export is written to memory/."
+        ],
+        "cm-query": [
+          "Run the complete Code-Mem repository update from this project root:",
+          "This directory is organized by purpose.",
+          "Goal: find the most relevant memories for a task by combining deterministic search, graph context and optional embeddings, with a local fallback always available.",
+          "Goal: verify that cm initializes project memory and exposes the public CLI.",
+          "Acceptance checks: duplicate edges are rejected, neighbors and paths are readable, graph statistics report nodes/edges, community detection completes, and each requested export is written to memory/."
+        ],
+        "cm-recall": [
+          "Run the complete Code-Mem repository update from this project root:",
+          "Goal: find the most relevant memories for a task by combining deterministic search, graph context and optional embeddings, with a local fallback always available.",
+          "Goal: verify that cm initializes project memory and exposes the public CLI.",
+          "These scenarios exercise the public cm CLI without reading source code.",
+          "Prefer cm save --kind fact when adding new integrations."
+        ]
+      }
+    },
+    "B hand-written": {
+      "n": 15,
+      "systems": {
+        "graphify": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0.133,
+          "hit_any": 0.733,
+          "chance5": 0,
+          "mrr": 0.103,
+          "files_cited_median": 13,
+          "tokens_median": 1510,
+          "ms_median": 149
+        },
+        "cm-query": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0,
+          "hit_any": 0.867,
+          "chance5": 0,
+          "mrr": 0.088,
+          "files_cited_median": 28,
+          "tokens_median": 2016,
+          "ms_median": 122
+        },
+        "cm-recall": {
+          "hit1": 0,
+          "hit3": 0,
+          "hit5": 0,
+          "hit_any": 0,
+          "chance5": 0,
+          "mrr": 0,
+          "files_cited_median": 9,
+          "tokens_median": 745,
+          "ms_median": 288
+        }
+      },
+      "misses": {
+        "graphify": [
+          "how does cm decide which memories to return for a task",
+          "how is the Ollama availability probe cached between runs",
+          "where is the Jev credit status stored and the user warned",
+          "how are API keys saved and masked in settings",
+          "how does the plain language flowchart get built from the code"
+        ],
+        "cm-query": [
+          "how does cm decide which memories to return for a task",
+          "where are prepared SQL statements cached",
+          "how is the Ollama availability probe cached between runs",
+          "where is the Jev credit status stored and the user warned",
+          "how are API keys saved and masked in settings"
+        ],
+        "cm-recall": [
+          "how does cm decide which memories to return for a task",
+          "where are prepared SQL statements cached",
+          "how is the Ollama availability probe cached between runs",
+          "where is the Jev credit status stored and the user warned",
+          "how are API keys saved and masked in settings"
+        ]
+      }
+    }
+  }
+}

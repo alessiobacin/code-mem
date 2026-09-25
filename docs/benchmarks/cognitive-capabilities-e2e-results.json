@@ -1,7 +1,7 @@
 {
   "benchmark": "codemem-cognitive-capabilities-e2e",
   "status": "ok",
-  "temp_root": "/var/folders/n1/86crx3px60355s2z86fvvxtm0000gn/T/codemem-capabilities-oPEF7B",
+  "temp_root": "/var/folders/n1/86crx3px60355s2z86fvvxtm0000gn/T/codemem-capabilities-t4840p",
   "capabilities_demonstrated": [
     "explicit supersession keeps predecessor + successor",
     "as-of recall exposes historical truth without contaminating current recall",
@@ -23,8 +23,8 @@
       "candidates": 1,
       "pending_verification": 0
     },
-    "audit": "mem_decision_h_3ed43167|active|accepted|2026-09-21T21:18:35.816Z|\nmem_decision_h_848a394d|corrected|superseded||mem_decision_h_3ed43167",
-    "rows": "mem_fact_h_2ac18797|Project: project Tech stack: Dirs:|active|accepted|||\nmem_decision_h_848a394d|Production API provider is OpenAI; region eu-west-1.|corrected|superseded||2026-09-21T21:18:35.216Z|mem_decision_h_3ed43167\nmem_decision_h_3ed43167|Production API provider changed to Anthropic on 2025-02-03; region eu-west-1.|active|accepted|2026-09-21T21:18:35.190Z||mem_decision_h_848a394d\nmem_fact_h_6ae67bbd|Decision: always validate schema before deploy; record failure evidence.|active|accepted|||\ncandidate_episode_h_b4fda57a_25515532|Decision: always validate schema before deploy; record failure evidence.|candidate|candidate|||"
+    "audit": "mem_decision_h_3ed43167|active|accepted|2026-09-25T11:25:49.400Z|\nmem_decision_h_848a394d|corrected|superseded||mem_decision_h_3ed43167",
+    "rows": "mem_fact_h_2ac18797|Project: project Tech stack: Dirs:|active|accepted|||\nmem_decision_h_848a394d|Production API provider is OpenAI; region eu-west-1.|corrected|superseded||2026-09-25T11:25:48.613Z|mem_decision_h_3ed43167\nmem_decision_h_3ed43167|Production API provider changed to Anthropic on 2025-02-03; region eu-west-1.|active|accepted|2026-09-25T11:25:48.567Z||mem_decision_h_848a394d\nmem_fact_h_6ae67bbd|Decision: always validate schema before deploy; record failure evidence.|active|accepted|||\ncandidate_episode_h_5e4cffee_35549046|Decision: always validate schema before deploy; record failure evidence.|candidate|candidate|||"
   },
   "comparison_boundary": "Graphify graph.json has nodes/edges/traversal; it does not expose these CodeMem belief/evidence/verification contracts as native memory lifecycle operations."
 }

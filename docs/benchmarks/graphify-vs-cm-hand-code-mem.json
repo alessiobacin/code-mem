@@ -1,0 +1,17 @@
+[
+  {"q": "how does cm decide which memories to return for a task", "gold": ["src/retrieval.js"]},
+  {"q": "where are prepared SQL statements cached", "gold": ["src/db.js"]},
+  {"q": "how is the Ollama availability probe cached between runs", "gold": ["src/embed.js"]},
+  {"q": "where is the Jev credit status stored and the user warned", "gold": ["src/jev.js"]},
+  {"q": "how are API keys saved and masked in settings", "gold": ["src/config.js"]},
+  {"q": "how does the plain language flowchart get built from the code", "gold": ["src/logic.js"]},
+  {"q": "how are documents grouped into topics and their relations typed", "gold": ["src/docs.js"]},
+  {"q": "how does cm update itself and verify the checksum", "gold": ["src/update.js"]},
+  {"q": "where are PDF and Word files converted to text", "gold": ["src/graph.js"]},
+  {"q": "how is the 3D graph HTML page generated", "gold": ["src/graph-export.js"]},
+  {"q": "how does the MCP server expose memory search tools", "gold": ["src/mcp.js"]},
+  {"q": "how are conversation turns captured from harness hooks", "gold": ["src/capture.js"]},
+  {"q": "how are duplicate memories detected when saving", "gold": ["src/storage.js"]},
+  {"q": "where are belief state and the verification queue of a memory handled", "gold": ["src/cognitive.js"]},
+  {"q": "how does the background graph refresh lock work", "gold": ["src/memory-ops.js"]}
+]
