@@ -163,7 +163,9 @@ function docSummary(text) {
 }
 
 function docTopicsPrompt(docs, readme) {
-  const listed = docs.slice(0, 300).map((doc, i) => `${i}. ${doc.path} — ${doc.title} — ${docSummary(doc.text).slice(0, 140)}`);
+  // ponytail: first 120 documents only, so the reply fits the model's output
+  // cap; the rest are assigned by Jev or by similarity in refreshDocMap.
+  const listed = docs.slice(0, 120).map((doc, i) => `${i}. ${doc.path} — ${doc.title} — ${docSummary(doc.text).slice(0, 140)}`);
   return [
     "You organise a collection of documents so that anyone can see what it is about. Work read-only and return JSON only.",
     `Create 3-${DOC_MAX_TOPICS} TOPICS that group the documents by subject (what they are about, not their file format or folder).`,

@@ -37,7 +37,7 @@ function pick(name) {
 }
 
 function loadHelpers() {
-  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap", "logicUnits", "logicSlug", "normalizeLogicFlow"];
+  const names = ["logicInventory", "logicFingerprint", "assignLogicOrphans", "logicFlowWeights", "normalizeLogicMap", "carryLogicMap", "logicUnits", "logicSlug", "normalizeLogicFlow", "keepPreviousFlow", "mergeJourneyFlows"];
   const src = `const LOGIC_MAX_PARTS = 9;\nconst LOGIC_MAX_UNITS = 120;\n${names.map(pick).join("\n")}\nreturn { ${names.join(", ")} };`;
   return new Function("createHash", src)(createHash);
 }
@@ -178,6 +178,30 @@ describe("A5 logic view helpers", () => {
       { id: "check", title: "Check", start: "keep", steps: ["keep", "lonely", "skip"] },
     ] }, map);
     assert.deepEqual(listed.journeys.map((j) => [j.id, j.nodes]), [["save", ["write", "known", "keep"]], ["check", ["keep", "lonely", "skip"]]]);
+  });
+
+  test("per-journey answers merge into one flowchart; identical steps are shared", () => {
+    const merged = h.mergeJourneyFlows([
+      { journey: { id: "save", title: "When you save", summary: "s" }, raw: { start: "n1",
+        nodes: [["n1", "start", "door", "You write a note", ""], ["n2", "store", "notebook", "Kept in the notebook", ""]], links: ["n1>n2"] } },
+      { journey: { id: "find", title: "When you search", summary: "f" }, raw: { start: "n1",
+        nodes: [["n1", "start", "door", "You ask a question", ""], ["n2", "store", "notebook", "Kept in the notebook", ""], ["n3", "end", "door", "Answer shown", ""]], links: ["n1>n2|look up", "n2>n3"] } },
+      { journey: { id: "broken", title: "Broken" }, raw: null },
+    ]);
+    assert.deepEqual(merged.journeys.map((j) => [j.id, j.start, j.steps]), [["save", "j0-n1", ["j0-n1", "j0-n2"]], ["find", "j1-n1", ["j1-n1", "j0-n2", "j1-n3"]]]);
+    assert.equal(merged.nodes.filter((n) => n[3] === "Kept in the notebook").length, 1);
+    assert.deepEqual(merged.links, ["j0-n1>j0-n2", "j1-n1>j0-n2|look up", "j0-n2>j1-n3"]);
+  });
+
+  test("a failed flowchart pass keeps the previous flowchart, marked stale", () => {
+    const prev = { parts: [{ id: "door" }, { id: "gone" }], flow: { journeys: [{ id: "j", title: "J", start: "a", nodes: ["a", "b"] }],
+      nodes: [{ id: "a", kind: "start", title: "A", part: "door" }, { id: "b", kind: "end", title: "B", part: "gone" }], links: [{ from: "a", to: "b", label: "" }] } };
+    const next = { parts: [{ id: "door" }, { id: "new" }], flows: [], stale: false };
+    const kept = h.keepPreviousFlow(next, prev);
+    assert.equal(kept.stale, true);
+    assert.deepEqual(kept.flow.nodes.map((n) => [n.id, n.part]), [["a", "door"], ["b", null]]);
+    assert.equal(h.keepPreviousFlow(next, null), next);
+    assert.equal(h.keepPreviousFlow(next, { parts: [] }), next);
   });
 
   test("without an LLM a previous map follows file changes and turns stale", () => {

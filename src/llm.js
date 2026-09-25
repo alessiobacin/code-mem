@@ -47,6 +47,26 @@ function runHarnessPrompt(harness, prompt, cwd, opts = {}) {
   }
 }
 
+// Async twin of runHarnessPrompt, so independent prompts can run in parallel.
+function runHarnessPromptAsync(harness, prompt, cwd, opts = {}) {
+  if (process.env.CM_NO_LLM === "1" || process.env.CM_IMPORT_NO_LLM === "1") return Promise.resolve({ raw: "", data: null, skipped: true, error: "disabled" });
+  const command = harnessCommand(harness, prompt, opts);
+  if (!command || !harness?.available) return Promise.resolve({ raw: "", data: null, skipped: true, error: "harness unavailable" });
+  const timeout = Number(opts.timeout || process.env.CM_LLM_TIMEOUT_MS || 120000);
+  return new Promise((resolveResult) => {
+    require("child_process").execFile(command.binary, command.args, {
+      cwd,
+      encoding: "utf8",
+      timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : 120000,
+      maxBuffer: 4 * 1024 * 1024,
+      env: { ...(opts.env || process.env), CM_NON_INTERACTIVE: "1" },
+    }, (error, stdout) => {
+      const raw = String(stdout || "");
+      resolveResult({ raw, data: parseHarnessJson(raw), skipped: false, error: error ? String(error.message || error) : "" });
+    }).stdin?.end();
+  });
+}
+
 function harnessImportPrompt(payload) {
   return [
     "You are the semantic normalization stage of Code-Mem.",

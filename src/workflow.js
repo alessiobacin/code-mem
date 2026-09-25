@@ -104,7 +104,7 @@ async function runDeepProjectUpdate(d, cwd, opts = {}) {
   const semantic = runHarnessSemanticPass(d, cwd, llmHarness, { ...inventory, nodes: loadGraphFromStore(d).nodes });
   if (semantic.attempted) console.log(`Semantic relations: ${semantic.added} evidence-bound relation(s) added${semantic.model ? ` via ${semantic.model}` : ""}.`);
   const communities = applyGraphCommunities(d, cwd);
-  const logic = refreshLogicMap(d, cwd, llmHarness, loadGraphFromStore(d));
+  const logic = await refreshLogicMap(d, cwd, llmHarness, loadGraphFromStore(d));
   console.log(logicStatusLine(logic));
   const docMap = await refreshDocMap(d, cwd, llmHarness, loadGraphFromStore(d));
   console.log(docStatusLine(docMap));

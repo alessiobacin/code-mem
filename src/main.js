@@ -1024,7 +1024,7 @@ async function main() {
   if (cmd === "logic") {
     const { flags: lflags } = parseArgs(a.slice(1));
     const harness = lflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
-    const logic = refreshLogicMap(d, c, harness, loadGraphFromStore(d), { force: Boolean(lflags.force) });
+    const logic = await refreshLogicMap(d, c, harness, loadGraphFromStore(d), { force: Boolean(lflags.force) });
     if (lflags.json) console.log(JSON.stringify(logic.map, null, 2));
     else {
       console.log(logicStatusLine(logic));
