@@ -209,6 +209,26 @@ the session-start context; calls pause for an hour, and the first successful
 call (`cm jev test --force`) clears the alert. Settings: `CM_JEV_ENDPOINT`,
 `CM_JEV_MODEL`, `CM_JEV=off`, `CM_JEV_TIMEOUT_MS`, `CM_NO_NOTIFY=1`.
 
+## Finding the right file
+
+`cm query` and `cm recall` start with a **Relevant files** list: the code or
+Markdown files that answer the question, best first. Every code file is
+indexed by its identifiers split into words (`setJevStatus` → "set jev
+status") and its comments; every Markdown file by its headings and text
+(SQLite FTS5 with stemming). The index follows edits on its own: changed files
+are re-read at query time, so a function written a second ago is already
+findable. Agents get the same ranking through the MCP tool `file_search`.
+
+With Jev configured, the top 10 candidates are re-ranked by one typed call
+("does this file contain the answer?" per file, about 0.6 s). The call is
+skipped when the text match is already decisive. Turn it off for one command
+with `--no-jev`.
+
+On the realistic hand-written questions of the
+[graphify benchmark](docs/reports/graphify-vs-code-mem-2026-09-25.md), the
+answering file comes first 80% of the time with Jev and 60% without; graphify's
+top-ranked file is right 0% of the time.
+
 ## Global local graph service
 
 The installer creates one per-user `cm-graphd` service on loopback. It serves every registered repository while keeping each project's memory database, harness settings, provider selection, and chat context isolated.
@@ -369,7 +389,7 @@ Notes:
 
 ### `cm mcp`
 
-Stdio JSON-RPC MCP server exposing project memory to any MCP-compatible harness (no shell-out needed). Tools: `memory_search` (ranked titles + summaries + scores), `memory_timeline` (recent rows, optional kind filter), `memory_get` (full row by id). Reuses the `recallMemories` pipeline, so ranking matches `cm recall --level 2 --mode hybrid`.
+Stdio JSON-RPC MCP server exposing project memory to any MCP-compatible harness (no shell-out needed). Tools: `file_search` (files that answer a question, see [Finding the right file](#finding-the-right-file)), `memory_search` (ranked titles + summaries + scores), `memory_timeline` (recent rows, optional kind filter), `memory_get` (full row by id). Reuses the `recallMemories` pipeline, so ranking matches `cm recall --level 2 --mode hybrid`.
 
 Usage:
 
@@ -642,8 +662,11 @@ Retrieve memories relevant to a task.
 Usage:
 
 ```bash
-cm recall <task> [--level 1|2|3] [--limit N] [--mode keyword|hybrid|semantic]
+cm recall <task> [--level 1|2|3] [--limit N] [--mode keyword|hybrid|semantic] [--no-jev]
 ```
+
+The output starts with the files that answer the task (see
+[Finding the right file](#finding-the-right-file)), then the memories.
 
 Levels:
 

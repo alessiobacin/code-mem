@@ -39,6 +39,7 @@ const ORDER = [
   "src/harness.js",      // harness discovery, settings metadata, local skill/command integration
   "src/llm.js",          // read-only harness-backed semantic bridge
   "src/jev.js",          // optional Jev typed-decision client + credit alerts
+  "src/findex.js",       // file index: question -> answering file (+ Jev re-rank)
   "src/memory-ops.js",
   "src/mcp.js",         // cm mcp stdio server
   "src/graph-export.js", // graph exports and community operations

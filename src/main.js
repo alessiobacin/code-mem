@@ -676,7 +676,9 @@ async function main() {
       console.log("--mode must be: keyword, hybrid, semantic, or explore");
       process.exit(1);
     }
+    const fileHits = await searchFiles(d, c, task, { jev: flags.jev !== false });
     recallMemories(d, c, task, level, limit, mode, { scope: flags.scope || "auto", asOf: flags["as-of"] || flags.asOf || null }).then((recalled) => {
+      if (fileHits.length) console.log(renderFileHits(fileHits));
       console.log(renderRecall(task, level, recalled));
       refreshProjections(d, c);
       d.close();
@@ -1052,6 +1054,8 @@ async function main() {
       console.log("Usage: cm query [--dfs] [--budget N] <question>");
       process.exit(1);
     }
+    const fileHits = await searchFiles(d, c, question, { jev: qflags.jev !== false });
+    if (fileHits.length) console.log(renderFileHits(fileHits));
     const useDfs = qflags.dfs === true;
     const budget = Math.max(100, Number.parseInt(qflags.budget || "2000", 10) || 2000);
     // BFS (default) or DFS (--dfs) from nodes matching keywords in the question

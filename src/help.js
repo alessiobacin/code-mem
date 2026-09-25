@@ -98,7 +98,7 @@ Memory read commands:
   cm ls-user
   cm recent [n]
   cm plan <task>
-  cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic|explore] [--scope project|global] [--as-of ISO]
+  cm recall <task> [--level 1|2|3] [--limit n] [--mode keyword|hybrid|semantic|explore] [--scope project|global] [--as-of ISO] [--no-jev]
   cm explain <task> [--limit n] [--mode keyword|hybrid|semantic|explore] [--scope project|global] [--as-of ISO]
   cm recall-auto
   cm watch [--interval N] [--daemon]
@@ -125,7 +125,7 @@ function glFull() {
   return `${gl()}
 
 [--full] Graph query:
-  cm query [--dfs] [--budget N] <question>   BFS (default) or DFS traversal
+  cm query [--dfs] [--budget N] [--no-jev] <question>   relevant files, then BFS (default) or DFS traversal
 
 [--full] Graph commands:
   cm ga <id> <label> <type>

@@ -8,6 +8,18 @@
 
 const MCP_TOOL_DEFS = [
   {
+    name: "file_search",
+    description: "Find the code or Markdown files that answer a question (identifiers, comments and headings are indexed; re-ranked by Jev when configured). Returns ranked paths with a one-line summary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Question or task in natural language" },
+        limit: { type: "number", description: "Max files (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "memory_search",
     description: "Search project + global memories for a task or question. Returns ranked titles with summaries and scores.",
     inputSchema: {
@@ -157,6 +169,13 @@ function mcpError(id, code, message) {
 
 async function mcpCallTool(d, cwd, name, args) {
   const a = args && typeof args === "object" ? args : {};
+  if (name === "file_search") {
+    const query = String(a.query || "").trim();
+    if (!query) return { content: [{ type: "text", text: "query required" }], isError: true };
+    const limit = Math.max(1, Math.min(20, Number.parseInt(a.limit, 10) || 5));
+    const hits = await searchFiles(d, cwd, query, { limit });
+    return mcpText(hits.map((h) => ({ path: h.path, summary: h.summary, score: Number(h.score.toFixed(3)), jev: h.jev ?? null })));
+  }
   if (name === "memory_search") {
     const query = String(a.query || "").trim();
     if (!query) return { content: [{ type: "text", text: "query required" }], isError: true };

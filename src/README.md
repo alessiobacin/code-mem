@@ -36,6 +36,7 @@ declarations are hoisted. `build/bundle.mjs` lists the canonical ORDER array.
 | `harness.js` | harness detection, safe settings metadata, project skills and `/cm-update` integration |
 | `llm.js` | read-only harness CLI bridge and validated semantic relations |
 | `jev.js` | optional Jev (TypeSafe) typed decisions: choice/score/noul, credit status + alerts |
+| `findex.js` | file index (FTS5 over split identifiers, comments, headings): question → answering file, optional Jev re-rank |
 | `memory-ops.js` | replace/remove/consolidate/prune, acquireLock, **watchLoop** |
 | `mcp.js` | `cm mcp` stdio JSON-RPC server (memory_search/timeline/get) |
 | `graph-export.js` | communities + GraphML/Neo4j/HTML/3D HTML/SVG export |

@@ -937,7 +937,7 @@ describe("cm mcp", () => {
     ]);
     assert.equal(res[0].result.serverInfo.name, "cm");
     const names = res[1].result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, ["graph_node", "graph_path", "graph_query", "graph_stats", "memory_get", "memory_search", "memory_timeline"]);
+    assert.deepEqual(names, ["file_search", "graph_node", "graph_path", "graph_query", "graph_stats", "memory_get", "memory_search", "memory_timeline"]);
   });
 
   test("`graph_query`/`graph_stats`/`graph_path`/`graph_node` traverse the project graph", async () => {
@@ -961,6 +961,18 @@ describe("cm mcp", () => {
     const node = JSON.parse(res[3].result.content[0].text);
     assert.equal(node.label, "login");
     assert.ok(node.connections.length >= 1, "graph_node must list connections");
+  });
+
+  test("`file_search` ranks the file that answers a question", async () => {
+    const p = makeProject("mcp-files");
+    initProject(p);
+    writeFileSync(join(p.dir, "src", "backup.js"), "// Rotates the nightly hexagonal backups.\nfunction rotateBackups(){}\nmodule.exports = { rotateBackups };\n");
+    p.run(["scan", "--deep"]);
+    const [res] = await mcpSession(p, [
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "file_search", arguments: { query: "how are backups rotated" } } },
+    ]);
+    const hits = JSON.parse(res.result.content[0].text);
+    assert.equal(hits[0]?.path, "src/backup.js");
   });
 
   test("`memory_search` finds a saved fact and `memory_get` returns its body", async () => {
