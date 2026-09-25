@@ -339,8 +339,14 @@ function runMediaCommand(binary, args, timeoutMs) {
   } catch { return ""; }
 }
 function commandAvailable(binary) {
+  // Look in PATH first (works everywhere, incl. Linux without zsh); the login
+  // shell fallback covers GUI/hook launches whose PATH lacks e.g. Homebrew.
+  for (const dir of String(process.env.PATH || "").split(":")) {
+    try { if (dir && statSync(join(dir, binary)).isFile()) return true; } catch {}
+  }
+  const shell = existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/sh";
   try {
-    const out = execFileSync("/bin/zsh", ["-lc", `command -v ${binary}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const out = execFileSync(shell, ["-lc", `command -v ${binary}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
     return Boolean(String(out || "").trim());
   } catch { return false; }
 }
