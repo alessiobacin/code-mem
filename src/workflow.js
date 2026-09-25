@@ -106,12 +106,14 @@ async function runDeepProjectUpdate(d, cwd, opts = {}) {
   const communities = applyGraphCommunities(d, cwd);
   const logic = refreshLogicMap(d, cwd, llmHarness, loadGraphFromStore(d));
   console.log(logicStatusLine(logic));
+  const docMap = await refreshDocMap(d, cwd, llmHarness, loadGraphFromStore(d));
+  console.log(docStatusLine(docMap));
   const snapshot = await refreshSnapshotMemory(d, cwd);
   refreshProjections(d, cwd);
   syncGraphProjection(d, cwd);
   const graph = loadGraphFromStore(d);
   const html2d = exportHTML(graph, cwd);
-  const html3d = export3DHTML(graph, cwd, logic.map);
+  const html3d = export3DHTML(graph, cwd, logic.map, docMap.map);
   const report = writeGraphReport(graph, cwd);
   const visual = graphForVisualization(graph);
   console.log(`Graph complete: ${graph.nodes.length} evidence nodes, ${graph.edges.length} evidence relations, ${communities.communities} communities.`);

@@ -139,6 +139,7 @@ function glFull() {
   cm gs
   cm gi
   cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
+  cm docs [--force] [--json] [--no-llm]  Documentation map (topics + typed relations between documents) -> 3D view
   cm config list|get|set|unset NAME [value] [--project]  Persistent settings (API keys masked; value read from stdin when omitted)
   cm jev status|test [--force]  Optional Jev typed-decision classifier (TYPESAFE_API_KEY)
   cm logic [--force] [--json] [--no-llm]  Plain-language "How it works" map (parts + flows) -> 3D view toggle

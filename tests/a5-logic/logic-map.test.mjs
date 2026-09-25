@@ -220,7 +220,7 @@ describe("A5 cm logic + 3D view toggle", () => {
     const first = cm("logic");
     assert.equal(first.status, 0, first.stdout + first.stderr);
     assert.match(first.stdout, /LLM/);
-    assert.doesNotMatch(html(), /id="view-toggle"/);
+    assert.doesNotMatch(html(), /data-view="logic"/);
 
     const d = new DatabaseSync(join(project, "memory", "state.db"));
     const seeded = { language: "English", fingerprint: "old", stale: false, parts: [
@@ -235,7 +235,7 @@ describe("A5 cm logic + 3D view toggle", () => {
     assert.match(second.stdout, /The Front Door/);
     assert.match(second.stdout, /writes in/);
     const page = html();
-    assert.match(page, /id="view-toggle"/);
+    assert.match(page, /data-view="logic"/);
     assert.match(page, /The Notebook/);
     assert.match(page, /Keeps your notes safe\./);
   });

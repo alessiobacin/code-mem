@@ -46,9 +46,10 @@ function readSecretInput(prompt) {
     try { return readFileSync(0, "utf8").split(/\r?\n/)[0].trim(); } catch { return ""; }
   }
   return new Promise((resolveValue) => {
+    process.stdout.write(prompt);
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    rl._writeToOutput = (text) => { if (text.includes(prompt)) process.stdout.write(text); };
-    rl.question(prompt, (answer) => { rl.close(); process.stdout.write("\n"); resolveValue(String(answer || "").trim()); });
+    rl._writeToOutput = () => {}; // hidden input: echo nothing (prompt printed once above)
+    rl.question("", (answer) => { rl.close(); process.stdout.write("\n"); resolveValue(String(answer || "").trim()); });
   });
 }
 

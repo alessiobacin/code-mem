@@ -43,6 +43,7 @@ const ORDER = [
   "src/mcp.js",         // cm mcp stdio server
   "src/graph-export.js", // graph exports and community operations
   "src/logic.js",        // plain-language logic view (parts + flows)
+  "src/docs.js",         // documentation view (topics + typed document relations)
   "src/entities.js",
   "src/workflow.js",    // unified full-repository indexing workflow
   "src/graph-service.js", // global per-user graph service lifecycle + project registry

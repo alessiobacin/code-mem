@@ -24,7 +24,7 @@ const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.10.1";
+const VERSION = "0.11.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -429,9 +429,10 @@ function readSecretInput(prompt) {
     try { return readFileSync(0, "utf8").split(/\r?\n/)[0].trim(); } catch { return ""; }
   }
   return new Promise((resolveValue) => {
+    process.stdout.write(prompt);
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    rl._writeToOutput = (text) => { if (text.includes(prompt)) process.stdout.write(text); };
-    rl.question(prompt, (answer) => { rl.close(); process.stdout.write("\n"); resolveValue(String(answer || "").trim()); });
+    rl._writeToOutput = () => {}; // hidden input: echo nothing (prompt printed once above)
+    rl.question("", (answer) => { rl.close(); process.stdout.write("\n"); resolveValue(String(answer || "").trim()); });
   });
 }
 
@@ -2694,7 +2695,10 @@ function collectMediaFiles(rootPath) {
     let info;
     try { info = statSync(current); } catch { return; }
     if (info.isFile()) {
-      if (isMediaFile(current) && !isWikiFile(current)) files.push(current);
+      // CM_IMPORT_NO_IMAGES=1 keeps documents/audio/video but skips images
+      // (vision/OCR is the slow part of a first import).
+      const skipImage = process.env.CM_IMPORT_NO_IMAGES === "1" && MEDIA_IMAGE_EXT.has(extname(current).toLowerCase());
+      if (isMediaFile(current) && !isWikiFile(current) && !skipImage) files.push(current);
       return;
     }
     if (!info.isDirectory()) return;
@@ -3417,6 +3421,7 @@ function glFull() {
   cm gs
   cm gi
   cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
+  cm docs [--force] [--json] [--no-llm]  Documentation map (topics + typed relations between documents) -> 3D view
   cm config list|get|set|unset NAME [value] [--project]  Persistent settings (API keys masked; value read from stdin when omitted)
   cm jev status|test [--force]  Optional Jev typed-decision classifier (TYPESAFE_API_KEY)
   cm logic [--force] [--json] [--no-llm]  Plain-language "How it works" map (parts + flows) -> 3D view toggle
@@ -7516,7 +7521,7 @@ sim.on("tick",()=>{link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("
   return outPath;
 }
 
-function export3DHTML(g, cwd, logic = null) {
+function export3DHTML(g, cwd, logic = null, docs = null) {
   const graphProject = registerGraphProject(cwd);
   const visual = graphForVisualization(g);
   const visualEdges = (visual.edges || []).filter((edge) =>
@@ -7553,6 +7558,13 @@ function export3DHTML(g, cwd, logic = null) {
   const logicPayload = JSON.stringify(logic && logic.parts?.length
     ? { stale: Boolean(logic.stale), language: logic.language || "", parts: logic.parts, flows: logic.flows || [], flow: logic.flow || null }
     : null).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const docsPayload = JSON.stringify(docs && docs.docs?.length
+    ? { topics: docs.topics, docs: docs.docs.map(({ hash, ...doc }) => doc), relations: docs.relations || [] }
+    : null).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const hasLogic = Boolean(logic && logic.parts?.length), hasDocs = Boolean(docs && docs.docs?.length);
+  const viewButtons = hasLogic || hasDocs
+    ? `<div id="views" role="tablist">${hasLogic ? '<button type="button" data-view="logic">💡 How it works</button>' : ""}${hasDocs ? '<button type="button" data-view="docs">📚 Documentation</button>' : ""}<button type="button" data-view="tech">🔧 Technical</button></div>`
+    : "";
   const typeColors = {
     project: "#f6c453", "project-directory": "#f6c453", server: "#fb7185", service: "#fda4af", storage: "#38bdf8", database: "#a78bfa", application: "#34d399", container: "#fbbf24", proxy: "#22d3ee", directory: "#eaa94a", document: "#7dd3fc",
     "knowledge-note": "#67e8f9", "wiki-note": "#67e8f9", "obsidian-note": "#67e8f9", section: "#a7f3d0",
@@ -7593,12 +7605,13 @@ h1{font-size:16px;letter-spacing:.02em;margin:0 8px 0 0;color:#f8fafc;white-spac
 #controls-body .nav-command{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:7px;min-height:22px}
 #controls-body .nav-command kbd{margin-right:0}
 @media(max-width:850px){#chat{left:50%;right:auto;bottom:12px;top:auto;transform:translateX(-50%);width:calc(100vw - 24px)}#controls{width:min(230px,42vw)}}
-#view-toggle{border-color:rgba(103,232,249,.55);background:#0f3346;font-weight:600;white-space:nowrap;flex:none}
-body.logic-mode .label,body.logic-mode .macro-label,body.logic-mode #filters,body.logic-mode #search{display:none!important}
+#views{display:flex;gap:4px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px}#views button{border:0;background:transparent;padding:6px 10px;white-space:nowrap;color:#cbd5e1}#views button.on{background:#0f3346;color:#fff;font-weight:600;box-shadow:inset 0 0 0 1px rgba(103,232,249,.55)}
+body[data-view=logic] .label,body[data-view=logic] .macro-label,body[data-view=logic] #filters,body[data-view=logic] #search,body[data-view=docs] .label,body[data-view=docs] .macro-label,body[data-view=docs] #filters,body[data-view=docs] #search{display:none!important}
 .logic-label{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:rgba(3,14,27,.86);border:1px solid var(--part-color,#67e8f9);color:#f8fafc;font-size:15px;white-space:nowrap;cursor:pointer;pointer-events:auto;box-shadow:0 0 14px rgba(0,0,0,.6);transition:opacity .2s}
 .logic-label .emoji{font-size:20px;line-height:1}
 .logic-verb{font-size:12px;color:#cbd5e1;background:rgba(3,14,27,.72);padding:2px 7px;border-radius:6px;white-space:nowrap;pointer-events:none;transition:opacity .2s}
-body:not(.logic-mode) .logic-label,body:not(.logic-mode) .logic-verb,body:not(.logic-mode) .flow-label,body:not(.logic-mode) .flow-branch{display:none!important}
+body:not([data-view=logic]) .logic-label,body:not([data-view=logic]) .logic-verb,body:not([data-view=logic]) .flow-label,body:not([data-view=logic]) .flow-branch,body:not([data-view=docs]) .doc-label,body:not([data-view=docs]) .topic-label,body:not([data-view=docs]) .doc-rel{display:none!important}
+.doc-label{font-size:12px;padding:3px 8px;border-radius:7px;background:rgba(3,14,27,.9);border:1px solid var(--c,#94a3b8);color:#f1f5f9;white-space:nowrap;cursor:pointer;pointer-events:auto;transition:opacity .2s}.topic-label{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:rgba(3,14,27,.86);border:1px solid var(--c,#67e8f9);color:#f8fafc;font-size:15px;white-space:nowrap;cursor:pointer;pointer-events:auto}.doc-rel{font-size:11px;color:#e2e8f0;background:rgba(3,14,27,.82);padding:1px 6px;border-radius:5px;white-space:nowrap;pointer-events:none;border-left:3px solid var(--c,#94a3b8)}.rel-key{display:flex;align-items:center;gap:7px;padding:3px 0;font-size:12px}.rel-key i{display:inline-block;width:18px;height:3px;border-radius:2px;background:var(--c)}.doc-type{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:4px}
 .flow-label{display:flex;align-items:center;gap:5px;font-size:12px;padding:3px 8px;border-radius:7px;background:rgba(3,14,27,.9);border:1px solid var(--c,#94a3b8);color:#f1f5f9;white-space:nowrap;cursor:pointer;pointer-events:auto;transition:opacity .2s}.flow-label.decision{border-style:dashed;color:#fde68a}.flow-label.start{font-weight:700}
 body.journey-active .logic-label{display:none!important}
 .flow-branch{font-size:11px;color:#fde68a;background:rgba(3,14,27,.82);padding:1px 6px;border-radius:5px;white-space:nowrap;pointer-events:none;transition:opacity .2s}
@@ -7609,7 +7622,7 @@ body.journey-active .logic-label{display:none!important}
 </head>
 <body>
 <div id="scene"></div>
-<div id="top"><h1>Code-Mem · 3D Knowledge Graph</h1><span id="stats"></span>${logic && logic.parts?.length ? '<button id="view-toggle" type="button"></button>' : ""}<input id="search" class="search" placeholder="Search nodes…" aria-label="Search nodes"><button id="reset">Reset view</button></div>
+<div id="top"><h1>Code-Mem · 3D Knowledge Graph</h1><span id="stats"></span>${viewButtons}<input id="search" class="search" placeholder="Search nodes…" aria-label="Search nodes"><button id="reset">Reset view</button></div>
 <section id="filters"><div class="panel-title">Visible categories</div><div class="category-list" id="category-filters"></div><button class="category-all" id="category-all" type="button">Show all categories</button></section>
 <aside id="side" class="empty"><button id="side-toggle" type="button" aria-expanded="true"><strong>Node details</strong><span>⌃</span></button><div id="side-content" class="side-content">Click a node to inspect its metadata, provenance, and connected relations.</div></aside>
 <section id="chat" class="collapsed" hidden><div id="chat-head"><strong>Ask the graph</strong><span id="chat-provider"></span><button id="chat-toggle" type="button" aria-expanded="false" aria-label="Expand chat">＋</button></div><div id="chat-resize" role="presentation" aria-label="Resize chat"></div><div id="chat-log"></div><form class="chat-form" id="chat-form"><textarea id="chat-input" rows="2" placeholder="Ask about this project's memory…" aria-label="Ask the graph"></textarea><button id="chat-submit" type="submit">Ask</button></form><div class="chat-foot">Drag the header to move · drag ↗ to resize · Cmd/Ctrl + Enter to send.</div></section>
@@ -7622,6 +7635,7 @@ import {CSS2DRenderer,CSS2DObject} from "three/addons/renderers/CSS2DRenderer.js
 const DATA=${payload};
 const COLORS=${JSON.stringify(typeColors)};
 const LOGIC=${logicPayload};
+const DOCS=${docsPayload};
 document.addEventListener('click',event=>{const label=event.target.closest?.('.label');if(!label)return;const n=DATA.nodes.find(item=>item._label===label);if(!n)return;event.stopPropagation();hovered=null;show(n)},true);
 const BRIDGE_URL=${JSON.stringify(graphServiceUrl())};
 const GRAPH_PROJECT=${JSON.stringify({ id: graphProject.id, token: graphProject.token })};
@@ -7676,6 +7690,11 @@ searchInput.addEventListener('input',ev=>updateSearch(ev.target.value));searchIn
 document.querySelector('#stats').textContent=DATA.nodes.length+' operational nodes · '+DATA.edges.length+' relations · '+communityIds.length+' macro clusters · '+(DATA.evidenceNodes||DATA.nodes.length)+' evidence nodes';const types=[...new Set(DATA.nodes.map(n=>n.type))];const typeCounts=new Map(types.map(type=>[type,DATA.nodes.filter(node=>node.type===type).length]));const categoryFilters=document.querySelector('#category-filters');function renderCategoryFilters(){categoryFilters.innerHTML=types.map(t=>'<button type="button" class="category-filter '+(visibleTypes.has(t)?'':'off')+'" data-category="'+esc(t)+'" aria-pressed="'+visibleTypes.has(t)+'"><i class="dot" style="--dot-color:'+esc(COLORS[t]||COLORS.default)+';background:'+esc(COLORS[t]||COLORS.default)+'"></i><span>'+esc(t)+' <small>'+typeCounts.get(t)+'</small></span></button>').join('');categoryFilters.querySelectorAll('[data-category]').forEach(button=>button.addEventListener('click',()=>{const category=button.dataset.category;if(visibleTypes.has(category))visibleTypes.delete(category);else visibleTypes.add(category);if(selected&&!visibleTypes.has(selected.type))clearSelection();renderCategoryFilters();applyHighlight()}))}document.querySelector('#category-all').addEventListener('click',()=>{types.forEach(type=>visibleTypes.add(type));renderCategoryFilters();applyHighlight()});renderCategoryFilters();const controlsToggle=document.querySelector('#controls-toggle'),controlsBody=document.querySelector('#controls-body');controlsToggle.addEventListener('click',()=>{const open=controlsBody.hidden;controlsBody.hidden=!open;controlsToggle.setAttribute('aria-expanded',String(open));controlsToggle.querySelector('span').textContent=open?'⌃':'⌄'});
 function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);labels.setSize(innerWidth,innerHeight);keepChatInsideViewport()}addEventListener('resize',resize);applyHighlight();function loop(){requestAnimationFrame(loop);animateFocus();animateVisuals();controls.update();updateLabels();renderer.render(scene,camera);labels.render(scene,camera)}loop();
 
+// View controller: Technical (evidence graph), How it works, Documentation.
+const VIEWS={},statsEl=document.querySelector('#stats'),techStats=statsEl.textContent,techStash=[];let currentView='tech';
+VIEWS.tech={enter(){group.visible=true;meshes.push(...techStash.splice(0));statsEl.textContent=techStats;clearSelection();focus={from:camera.position.clone(),to:home.position.clone(),targetFrom:controls.target.clone(),targetTo:home.target.clone(),start:performance.now(),duration:1000}},leave(){group.visible=false;techStash.push(...meshes.splice(0));hovered=null;selected=null;searchQuery='';searchMatches=new Set();applyHighlight()}};
+function showView(name){if(!VIEWS[name])name='tech';if(name!==currentView)VIEWS[currentView].leave();currentView=name;document.body.dataset.view=name;document.querySelectorAll('#views [data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===name));VIEWS[name].enter();try{localStorage.setItem('cm-graph-view',name)}catch{}}
+
 if(LOGIC&&!LOGIC.flow){
 // "How it works" (parts only, no flowchart yet): plain-language parts as big spheres, flows as arrows.
 const logicGroup=new THREE.Group();logicGroup.visible=false;scene.add(logicGroup);
@@ -7688,17 +7707,14 @@ LOGIC.flows.forEach(f=>{const a=partMeshById.get(f.from),b=partMeshById.get(f.to
 let logicMode=false,logicActive=null,logicHover=null,logicDown=null;const techMeshes=[];
 function logicHighlight(){const act=logicActive||logicHover;const related=new Set();if(act){related.add(act.id);LOGIC.flows.forEach(f=>{if(f.from===act.id)related.add(f.to);if(f.to===act.id)related.add(f.from)})}partMeshes.forEach(m=>{const on=!act||related.has(m.userData.part.id);m.material.opacity=on?.95:.16;m.material.emissiveIntensity=act?.id===m.userData.part.id?.75:.25;m.userData.el.style.opacity=on?'1':'.28'});flowObjs.forEach(o=>{const on=!act||o.f.from===act.id||o.f.to===act.id;o.mat.opacity=on?(act?.95:.7):.06;o.mat.color.set(act&&on?0x67e8f9:0x94a3b8);o.el.style.opacity=on?'1':'0'})}
 function logicIntro(){sidePanel.classList.remove('empty');sideContent.innerHTML='<div class="kind">HOW IT WORKS</div><h2>'+LOGIC.parts.length+' parts working together</h2>'+(LOGIC.stale?'<div class="logic-stale">The code changed since these names were written; they may be slightly out of date.</div>':'')+'<div class="logic-summary">Each ball is one part of the software. Arrows show which part helps which. Click a part to read what it does.</div>'+LOGIC.parts.map(p=>'<div class="logic-flow">'+esc(p.emoji)+' <b>'+esc(p.name)+'</b> — '+esc(p.summary)+'</div>').join('')}
-function showPart(p){logicActive=p;logicHighlight();const name=x=>esc(x.emoji+' '+x.name);const out=LOGIC.flows.filter(f=>f.from===p.id).map(f=>'<div class="logic-flow">→ '+esc(f.verb)+' '+name(partById.get(f.to))+'</div>');const inc=LOGIC.flows.filter(f=>f.to===p.id).map(f=>'<div class="logic-flow">'+name(partById.get(f.from))+' → '+esc(f.verb)+'</div>');const files=new Set(p.files);const techIds=DATA.nodes.filter(n=>files.has(n.metadata?.source_path)).map(n=>n.id);sidePanel.classList.remove('empty');sideContent.innerHTML='<div class="kind">PART</div><h2>'+name(p)+'</h2><div class="logic-summary">'+esc(p.summary)+'</div>'+(out.length||inc.length?'<div class="relations"><h3>Works with</h3>'+out.join('')+inc.join('')+'</div>':'')+'<details class="relations"><summary>Built from '+p.files.length+' source file(s)</summary>'+p.files.map(f=>'<div><small>'+esc(f)+'</small></div>').join('')+'</details>'+(techIds.length?'<p><button type="button" id="logic-to-tech">🔧 See it in the technical view</button></p>':'');const jump=document.querySelector('#logic-to-tech');if(jump)jump.onclick=()=>{setMode(false);searchQuery=' ';searchMatches=new Set(techIds);applyHighlight();showSearchSummary(DATA.nodes.filter(n=>searchMatches.has(n.id)));sideContent.querySelector('.kind').textContent='TECHNICAL PIECES OF '+p.name;focusOnIds(new Set(techIds))};const ids=[p.id,...LOGIC.flows.filter(f=>f.from===p.id||f.to===p.id).map(f=>f.from===p.id?f.to:f.from)];focusLogic(ids)}
+function showPart(p){logicActive=p;logicHighlight();const name=x=>esc(x.emoji+' '+x.name);const out=LOGIC.flows.filter(f=>f.from===p.id).map(f=>'<div class="logic-flow">→ '+esc(f.verb)+' '+name(partById.get(f.to))+'</div>');const inc=LOGIC.flows.filter(f=>f.to===p.id).map(f=>'<div class="logic-flow">'+name(partById.get(f.from))+' → '+esc(f.verb)+'</div>');const files=new Set(p.files);const techIds=DATA.nodes.filter(n=>files.has(n.metadata?.source_path)).map(n=>n.id);sidePanel.classList.remove('empty');sideContent.innerHTML='<div class="kind">PART</div><h2>'+name(p)+'</h2><div class="logic-summary">'+esc(p.summary)+'</div>'+(out.length||inc.length?'<div class="relations"><h3>Works with</h3>'+out.join('')+inc.join('')+'</div>':'')+'<details class="relations"><summary>Built from '+p.files.length+' source file(s)</summary>'+p.files.map(f=>'<div><small>'+esc(f)+'</small></div>').join('')+'</details>'+(techIds.length?'<p><button type="button" id="logic-to-tech">🔧 See it in the technical view</button></p>':'');const jump=document.querySelector('#logic-to-tech');if(jump)jump.onclick=()=>{showView('tech');searchQuery=' ';searchMatches=new Set(techIds);applyHighlight();showSearchSummary(DATA.nodes.filter(n=>searchMatches.has(n.id)));sideContent.querySelector('.kind').textContent='TECHNICAL PIECES OF '+p.name;focusOnIds(new Set(techIds))};const ids=[p.id,...LOGIC.flows.filter(f=>f.from===p.id||f.to===p.id).map(f=>f.from===p.id?f.to:f.from)];focusLogic(ids)}
 function focusLogic(ids){const pts=ids.map(id=>partMeshById.get(id)?.position).filter(Boolean);if(!pts.length)return;const box=new THREE.Box3().setFromPoints(pts);const center=box.getCenter(new THREE.Vector3());const radius=Math.max(8,box.getSize(new THREE.Vector3()).length()/2+6);const distance=radius/Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*1.15;const dir=camera.position.clone().sub(controls.target);if(dir.lengthSq()<.001)dir.set(0,0,1);dir.normalize();focus={from:camera.position.clone(),to:center.clone().add(dir.multiplyScalar(distance)),targetFrom:controls.target.clone(),targetTo:center,start:performance.now(),duration:1000}}
-const viewToggle=document.querySelector('#view-toggle'),statsEl=document.querySelector('#stats'),techStats=statsEl.textContent;
-function setMode(on){logicMode=on;document.body.classList.toggle('logic-mode',on);group.visible=!on;logicGroup.visible=on;if(on)techMeshes.push(...meshes.splice(0));else meshes.push(...techMeshes.splice(0));hovered=null;selected=null;logicActive=null;logicHover=null;searchQuery='';searchMatches=new Set();applyHighlight();logicHighlight();viewToggle.textContent=on?'🔧 Technical view':'💡 How it works';statsEl.textContent=on?LOGIC.parts.length+' parts · '+LOGIC.flows.length+' connections':techStats;if(on){logicIntro();focusLogic(LOGIC.parts.map(p=>p.id))}else{clearSelection();focus={from:camera.position.clone(),to:home.position.clone(),targetFrom:controls.target.clone(),targetTo:home.target.clone(),start:performance.now(),duration:1000}}try{localStorage.setItem('cm-graph-view',on?'logic':'tech')}catch{}}
-viewToggle.addEventListener('click',()=>setMode(!logicMode));
+function setMode(on){logicMode=on;logicGroup.visible=on;hovered=null;selected=null;logicActive=null;logicHover=null;searchQuery='';searchMatches=new Set();applyHighlight();logicHighlight();if(on)statsEl.textContent=LOGIC.parts.length+' parts · '+LOGIC.flows.length+' connections';if(on){logicIntro();focusLogic(LOGIC.parts.map(p=>p.id))}}
+VIEWS.logic={enter:()=>setMode(true),leave:()=>setMode(false)};
 document.querySelector('#reset').addEventListener('click',()=>{if(!logicMode)return;logicActive=null;logicHighlight();logicIntro();focusLogic(LOGIC.parts.map(p=>p.id))});
 renderer.domElement.addEventListener('pointerdown',ev=>{logicDown={x:ev.clientX,y:ev.clientY}});
 renderer.domElement.addEventListener('pointermove',ev=>{if(!logicMode)return;pointer.x=(ev.clientX/innerWidth)*2-1;pointer.y=-(ev.clientY/innerHeight)*2+1;ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects(partMeshes)[0];const p=hit?.object.userData.part||null;if(p?.id!==logicHover?.id){logicHover=p;logicHighlight()}renderer.domElement.style.cursor=hit?'pointer':'grab'});
 renderer.domElement.addEventListener('click',ev=>{if(!logicMode)return;const dragged=logicDown&&((ev.clientX-logicDown.x)**2+(ev.clientY-logicDown.y)**2)>36;logicDown=null;if(dragged)return;pointer.x=(ev.clientX/innerWidth)*2-1;pointer.y=-(ev.clientY/innerHeight)*2+1;ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects(partMeshes)[0];if(hit)showPart(hit.object.userData.part);else{logicActive=null;logicHighlight();logicIntro()}});
-let saved=null;try{saved=localStorage.getItem('cm-graph-view')}catch{}
-setMode(saved!=='tech');
 }
 
 if(LOGIC&&LOGIC.flow){
@@ -7740,23 +7756,64 @@ function logicHighlight(){const s=focusSet();const main=hoverNode?.id||active?.m
 const labelTmp=new THREE.Vector3();function labelTick(){requestAnimationFrame(labelTick);if(!logicMode)return;if(moving){let still=true;flowMeshes.forEach(m=>{const t=target.get(m.userData.node.id);m.position.lerp(t,.14);if(m.position.distanceToSquared(t)>.0004)still=false});updateArrows();if(still)moving=false}const focused=Boolean(focusSet());const near=zoneR*.18,far=zoneR*.6;flowMeshes.forEach(m=>{const el=m.userData.el;const on=el.dataset.on!=='0';let o;if(focused)o=on?1:0;else if(m.userData.node.kind==='start')o=1;else{m.getWorldPosition(labelTmp);o=Math.max(0,Math.min(1,(far-camera.position.distanceTo(labelTmp))/(far-near)))}el.style.opacity=String(o);el.style.visibility=o>0.02?'visible':'hidden'});arrows.forEach(a=>{if(!a.el)return;const show=focused&&a.el.dataset.on!=='0';a.el.style.opacity=show?'1':'0';a.el.style.visibility=show?'visible':'hidden'})}labelTick();
 function focusIds(list){const pts=list.map(id=>target.get(id)).filter(Boolean);if(!pts.length)return;const box=new THREE.Box3().setFromPoints(pts);const c=box.getCenter(new THREE.Vector3());const radius=Math.max(7,box.getSize(new THREE.Vector3()).length()/2+4);const dist=radius/Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*1.3;const dir=camera.position.clone().sub(controls.target);if(dir.lengthSq()<.001)dir.set(0,0,1);dir.normalize();if(!sidePanel.classList.contains('collapsed')){camera.updateMatrixWorld();const visibleWidth=2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect;c.add(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0).normalize().multiplyScalar((sidePanel.offsetWidth+16)/innerWidth*visibleWidth/2))}focus={from:camera.position.clone(),to:c.clone().add(dir.multiplyScalar(dist)),targetFrom:controls.target.clone(),targetTo:c,start:performance.now(),duration:1000}}
 const nodeLine=(id,extra)=>{const n=nodeById.get(id);return '<div class="step-row" data-node="'+esc(id)+'">'+(extra||'')+esc(KIND_ICON[n.kind]+' '+n.title)+'</div>'};
-function wire(){sideContent.querySelectorAll('[data-node]').forEach(el=>el.addEventListener('click',()=>showNode(nodeById.get(el.dataset.node))));sideContent.querySelectorAll('[data-journey]').forEach(el=>el.addEventListener('click',()=>showJourney(F.journeys.find(j=>j.id===el.dataset.journey))));sideContent.querySelectorAll('[data-part]').forEach(el=>el.addEventListener('click',()=>showPart(partById.get(el.dataset.part))));const back=sideContent.querySelector('#flow-back');if(back)back.onclick=()=>{active=null;hoverNode=null;resetLayout();logicHighlight();logicIntro();focusIds(ids)};const jump=sideContent.querySelector('#logic-to-tech');if(jump)jump.onclick=()=>{const files=new Set(JSON.parse(jump.dataset.files));const techIds=DATA.nodes.filter(n=>files.has(n.metadata?.source_path)).map(n=>n.id);setMode(false);searchQuery=' ';searchMatches=new Set(techIds);applyHighlight();showSearchSummary(DATA.nodes.filter(n=>searchMatches.has(n.id)));focusOnIds(new Set(techIds))}}
+function wire(){sideContent.querySelectorAll('[data-node]').forEach(el=>el.addEventListener('click',()=>showNode(nodeById.get(el.dataset.node))));sideContent.querySelectorAll('[data-journey]').forEach(el=>el.addEventListener('click',()=>showJourney(F.journeys.find(j=>j.id===el.dataset.journey))));sideContent.querySelectorAll('[data-part]').forEach(el=>el.addEventListener('click',()=>showPart(partById.get(el.dataset.part))));const back=sideContent.querySelector('#flow-back');if(back)back.onclick=()=>{active=null;hoverNode=null;resetLayout();logicHighlight();logicIntro();focusIds(ids)};const jump=sideContent.querySelector('#logic-to-tech');if(jump)jump.onclick=()=>{const files=new Set(JSON.parse(jump.dataset.files));const techIds=DATA.nodes.filter(n=>files.has(n.metadata?.source_path)).map(n=>n.id);showView('tech');searchQuery=' ';searchMatches=new Set(techIds);applyHighlight();showSearchSummary(DATA.nodes.filter(n=>searchMatches.has(n.id)));focusOnIds(new Set(techIds))}}
 function panel(html){sidePanel.classList.remove('empty');sideContent.innerHTML=html;wire()}
 function logicIntro(){panel('<div class="kind">'+esc(T.title.toUpperCase())+'</div><h2>'+esc(T.title)+'</h2>'+(LOGIC.stale?'<div class="logic-stale">'+esc(T.stale)+'</div>':'')+'<div class="logic-summary">'+esc(T.intro)+'</div><div class="relations"><h3>'+esc(T.journeys)+'</h3>'+F.journeys.map(j=>'<button type="button" class="journey-btn" data-journey="'+esc(j.id)+'">▶ '+esc(j.title)+'<small>'+esc(j.summary)+' · '+j.nodes.length+' '+esc(T.steps)+'</small></button>').join('')+'</div><div class="relations"><h3>'+esc(T.parts)+'</h3>'+LOGIC.parts.map(p=>'<div class="step-row" data-part="'+esc(p.id)+'">'+esc(p.emoji+' '+p.name)+' <small>— '+esc(p.summary)+'</small></div>').join('')+'</div>')}
 function showJourney(j){active={kind:'journey',main:j.start,ids:new Set(j.nodes)};hoverNode=null;layoutJourney(j);logicHighlight();let html='<button type="button" id="flow-back">'+esc(T.back)+'</button><div class="kind">'+esc(T.journeys.toUpperCase())+'</div><h2>▶ '+esc(j.title)+'</h2><div class="logic-summary">'+esc(j.summary)+'</div><div class="relations">';j.nodes.forEach((id,i)=>{const n=nodeById.get(id);const outs=(outLinks.get(id)||[]).filter(l=>active.ids.has(l.to));const branches=n.kind==='decision'?outs.map(l=>'<span class="branch">'+esc((l.label||'…')+' → '+nodeById.get(l.to).title)+'</span>').join(''):'';html+='<div class="step-row" data-node="'+esc(id)+'"><span class="step-num">'+(i+1)+'.</span>'+esc(KIND_ICON[n.kind]+' '+n.title)+branches+'</div>'});panel(html+'</div>');focusIds(j.nodes)}
 function showNode(n){hoverNode=null;const near=[n.id,...(outLinks.get(n.id)||[]).map(l=>l.to),...(inLinks.get(n.id)||[]).map(l=>l.from)];active={kind:'node',main:n.id,ids:new Set(near)};logicHighlight();const p=partById.get(n.part);const ins=(inLinks.get(n.id)||[]).map(l=>nodeLine(l.from,l.label?'<small>['+esc(l.label)+']</small> ':''));const outs=(outLinks.get(n.id)||[]).map(l=>nodeLine(l.to,l.label?'<small>['+esc(l.label)+']</small> ':''));const js=F.journeys.filter(j=>j.nodes.includes(n.id));panel('<button type="button" id="flow-back">'+esc(T.back)+'</button><div class="kind">'+esc(T.kinds[n.kind]||n.kind)+'</div><h2>'+esc(KIND_ICON[n.kind]+' '+n.title)+'</h2><div class="logic-summary">'+esc(n.detail)+'</div>'+(p?'<div class="step-row" data-part="'+esc(p.id)+'">'+esc(T.part)+': '+esc(p.emoji+' '+p.name)+'</div>':'')+(ins.length?'<div class="relations"><h3>'+esc(T.before)+'</h3>'+ins.join('')+'</div>':'')+(outs.length?'<div class="relations"><h3>'+esc(T.after)+'</h3>'+outs.join('')+'</div>':'')+(js.length?'<div class="relations"><h3>'+esc(T.inJourneys)+'</h3>'+js.map(j=>'<button type="button" class="journey-btn" data-journey="'+esc(j.id)+'">▶ '+esc(j.title)+'</button>').join('')+'</div>':''));focusIds(near)}
 function showPart(p){const own=F.nodes.filter(n=>n.part===p.id).map(n=>n.id);active={kind:'part',main:p.id,ids:new Set(own)};hoverNode=null;resetLayout();logicHighlight();panel('<button type="button" id="flow-back">'+esc(T.back)+'</button><div class="kind">'+esc(T.part.toUpperCase())+'</div><h2>'+esc(p.emoji+' '+p.name)+'</h2><div class="logic-summary">'+esc(p.summary)+'</div><div class="relations">'+own.map(id=>nodeLine(id)).join('')+'</div><details class="relations"><summary>'+p.files.length+' source file(s)</summary>'+p.files.map(f=>'<div><small>'+esc(f)+'</small></div>').join('')+'</details><p><button type="button" id="logic-to-tech" data-files="'+esc(JSON.stringify(p.files))+'">'+esc(T.seeTech)+'</button></p>');focusIds(own.length?own:ids)}
-const viewToggle=document.querySelector('#view-toggle'),statsEl=document.querySelector('#stats'),techStats=statsEl.textContent;
-function setMode(on){logicMode=on;document.body.classList.toggle('logic-mode',on);group.visible=!on;logicGroup.visible=on;if(on)techMeshes.push(...meshes.splice(0));else meshes.push(...techMeshes.splice(0));hovered=null;selected=null;active=null;hoverNode=null;searchQuery='';searchMatches=new Set();applyHighlight();logicHighlight();viewToggle.textContent=on?T.tech:T.how;statsEl.textContent=on?T.stats(F.journeys.length,F.nodes.length):techStats;if(on){logicIntro();focusIds(ids)}else{clearSelection();focus={from:camera.position.clone(),to:home.position.clone(),targetFrom:controls.target.clone(),targetTo:home.target.clone(),start:performance.now(),duration:1000}}try{localStorage.setItem('cm-graph-view',on?'logic':'tech')}catch{}}
-viewToggle.addEventListener('click',()=>setMode(!logicMode));
+function setMode(on){logicMode=on;logicGroup.visible=on;hovered=null;selected=null;active=null;hoverNode=null;if(!on)resetLayout();searchQuery='';searchMatches=new Set();applyHighlight();logicHighlight();if(on)statsEl.textContent=T.stats(F.journeys.length,F.nodes.length);if(on){logicIntro();focusIds(ids)}}
+VIEWS.logic={enter:()=>setMode(true),leave:()=>setMode(false)};
 document.querySelector('#reset').addEventListener('click',()=>{if(!logicMode)return;active=null;hoverNode=null;resetLayout();logicHighlight();logicIntro();focusIds(ids)});
 renderer.domElement.addEventListener('pointerdown',ev=>{logicDown={x:ev.clientX,y:ev.clientY}});
 const pick=ev=>{pointer.x=(ev.clientX/innerWidth)*2-1;pointer.y=-(ev.clientY/innerHeight)*2+1;ray.setFromCamera(pointer,camera);return ray.intersectObjects(flowMeshes)[0]};
 renderer.domElement.addEventListener('pointermove',ev=>{if(!logicMode)return;const hit=pick(ev);const n=hit?.object.userData.node||null;if(n?.id!==hoverNode?.id){hoverNode=n;logicHighlight()}renderer.domElement.style.cursor=hit?'pointer':'grab'});
 renderer.domElement.addEventListener('click',ev=>{if(!logicMode)return;const dragged=logicDown&&((ev.clientX-logicDown.x)**2+(ev.clientY-logicDown.y)**2)>36;logicDown=null;if(dragged)return;const hit=pick(ev);if(hit)showNode(hit.object.userData.node);else if(active){active=null;hoverNode=null;resetLayout();logicHighlight();logicIntro();focusIds(ids)}});
-let saved=null;try{saved=localStorage.getItem('cm-graph-view')}catch{}
-setMode(saved!=='tech');
 }
+
+if(DOCS){
+// Documentation: documents grouped in topic zones, arrows are typed relations.
+const docGroup=new THREE.Group();docGroup.visible=false;scene.add(docGroup);let docMode=false,docActive=null,docHover=null,docDown=null;
+const DPAL=[0x67e8f9,0xa78bfa,0x34d399,0xf472b6,0x60a5fa,0xfdba74,0xa3e635,0xfb7185,0xfbbf24];
+const REL_COLOR={references:0x94a3b8,details:0x60a5fa,applies:0x34d399,depends_on:0xfbbf24,updates:0xa78bfa,contradicts:0xfb7185,same_subject:0x64748b};
+const REL_LABEL={references:'references',details:'details',applies:'applies',depends_on:'depends on',updates:'updates',contradicts:'contradicts',same_subject:'same subject as'};
+const hexd=c=>'#'+c.toString(16).padStart(6,'0');
+const topicIdx=new Map(DOCS.topics.map((t,i)=>[t.id,i])),topicById=new Map(DOCS.topics.map(t=>[t.id,t])),docById=new Map(DOCS.docs.map(d=>[d.id,d]));
+const tColor=id=>DPAL[(topicIdx.get(id)??0)%DPAL.length];
+const dOut=new Map(),dIn=new Map();DOCS.relations.forEach(r=>{if(!dOut.has(r.from))dOut.set(r.from,[]);dOut.get(r.from).push(r);if(!dIn.has(r.to))dIn.set(r.to,[]);dIn.get(r.to).push(r)});
+const degree=id=>(dOut.get(id)||[]).length+(dIn.get(id)||[]).length;
+// deterministic force layout
+const DN=DOCS.docs.length,dR=Math.max(48,Math.sqrt(DN)*10),dCentre=new Map(DOCS.topics.map((t,i)=>[t.id,localPos(i,DOCS.topics.length,dR)])),dPos=new Map(),dVel=new Map(),dGroups=new Map();
+DOCS.docs.forEach(d=>{if(!dGroups.has(d.topic))dGroups.set(d.topic,[]);dGroups.get(d.topic).push(d)});
+dGroups.forEach((list,k)=>{const c=dCentre.get(k)||new THREE.Vector3();list.forEach((d,i)=>{dPos.set(d.id,c.clone().add(localPos(i,list.length,3+Math.sqrt(list.length)*1.9)));dVel.set(d.id,new THREE.Vector3())})});
+const dIds=DOCS.docs.map(d=>d.id),dt=new THREE.Vector3();
+for(let it=0;it<260;it++){const cool=1-it/260;for(let a=0;a<DN;a++){const pa=dPos.get(dIds[a]);for(let b=a+1;b<DN;b++){const pb=dPos.get(dIds[b]);dt.subVectors(pa,pb);let d2=dt.lengthSq();if(d2>900)continue;if(d2<.01){dt.set((a%3)-1,(b%3)-1,1);d2=1}dt.normalize().multiplyScalar(20/d2);dVel.get(dIds[a]).add(dt);dVel.get(dIds[b]).sub(dt)}}DOCS.relations.forEach(r=>{const pa=dPos.get(r.from),pb=dPos.get(r.to);if(!pa||!pb)return;dt.subVectors(pb,pa);const d=dt.length()||1;dt.multiplyScalar((d-8)*.03/d);dVel.get(r.from).add(dt);dVel.get(r.to).sub(dt)});DOCS.docs.forEach(d=>{dt.subVectors(dCentre.get(d.topic)||new THREE.Vector3(),dPos.get(d.id)).multiplyScalar(.05);dVel.get(d.id).add(dt)});DOCS.docs.forEach(d=>{const v=dVel.get(d.id);v.clampLength(0,2*cool+.05);dPos.get(d.id).add(v);v.multiplyScalar(.55)})}
+// topic zones
+const dZones=[];dGroups.forEach((list,k)=>{const t=topicById.get(k);if(!t)return;const c=new THREE.Vector3();list.forEach(d=>c.add(dPos.get(d.id)));c.multiplyScalar(1/list.length);let r=0;list.forEach(d=>{r=Math.max(r,c.distanceTo(dPos.get(d.id)))});r+=4;const color=tColor(k);const zone=new THREE.Mesh(new THREE.SphereGeometry(r,40,28),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.07,depthWrite:false}));zone.position.copy(c);const el=document.createElement('div');el.className='topic-label';el.style.setProperty('--c',hexd(color));el.innerHTML='<span>'+esc(t.emoji)+'</span><b>'+esc(t.name)+'</b> <small>'+list.length+'</small>';el.addEventListener('click',ev=>{ev.stopPropagation();showTopic(t)});const lab=new CSS2DObject(el);lab.position.set(0,r+1,0);zone.add(lab);zone.userData={topic:t,el};docGroup.add(zone);dZones.push(zone)});
+// documents
+const maxDeg=Math.max(1,...dIds.map(degree)),docMeshes=[],docMeshById=new Map();
+DOCS.docs.forEach(d=>{const color=tColor(d.topic);const size=.7+1.1*Math.sqrt(degree(d.id)/maxDeg);const mesh=new THREE.Mesh(new THREE.BoxGeometry(size*1.4,size*1.8,size*.35),new THREE.MeshStandardMaterial({color,emissive:new THREE.Color(color),emissiveIntensity:.25,roughness:.45,transparent:true,opacity:.95}));mesh.position.copy(dPos.get(d.id));const el=document.createElement('div');el.className='doc-label';el.style.setProperty('--c',hexd(color));el.textContent=d.title;el.addEventListener('click',ev=>{ev.stopPropagation();showDoc(d)});const lab=new CSS2DObject(el);lab.position.set(0,size*1.3+.6,0);mesh.add(lab);mesh.userData={doc:d,el};docGroup.add(mesh);docMeshes.push(mesh);docMeshById.set(d.id,mesh)});
+// relations
+const dArrows=[];DOCS.relations.forEach(r=>{const a=dPos.get(r.from),b=dPos.get(r.to);if(!a||!b)return;const dir=b.clone().sub(a);if(dir.lengthSq()<.25)return;dir.normalize();const from=a.clone().add(dir.clone().multiplyScalar(1.4)),to=b.clone().sub(dir.clone().multiplyScalar(1.7));const color=REL_COLOR[r.type]||0x94a3b8;const mat=new THREE.LineBasicMaterial({color,transparent:true,opacity:.55});const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([from,to]),mat);const cmat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.7});const cone=new THREE.Mesh(new THREE.ConeGeometry(.35,1,12),cmat);cone.position.copy(to);cone.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir);const el=document.createElement('div');el.className='doc-rel';el.style.setProperty('--c',hexd(color));el.textContent=REL_LABEL[r.type]||r.type;const lab=new CSS2DObject(el);lab.position.copy(from.clone().lerp(to,.5));docGroup.add(line,cone,lab);dArrows.push({r,mat,cmat,el})});
+function docFocusSet(){const act=docHover?{kind:'doc',ids:new Set([docHover.id,...(dOut.get(docHover.id)||[]).map(r=>r.to),...(dIn.get(docHover.id)||[]).map(r=>r.from)])}:docActive;return act?act.ids:null}
+function docHighlight(){const s=docFocusSet();const main=docHover?.id||docActive?.main;docMeshes.forEach(m=>{const on=!s||s.has(m.userData.doc.id);m.material.opacity=on?.95:.05;m.material.emissiveIntensity=main===m.userData.doc.id?.8:(on&&s?.45:.25);m.userData.el.dataset.on=on?'1':'0'});dArrows.forEach(a=>{const on=!s||(s.has(a.r.from)&&s.has(a.r.to));a.mat.opacity=on?(s?.95:.45):.03;a.cmat.opacity=on?(s?1:.6):.03;a.el.dataset.on=on&&s?'1':'0'});const liveTopics=s?new Set([...s].map(id=>docById.get(id)?.topic)):null;dZones.forEach(z=>{z.material.opacity=docActive?.kind==='topic'&&docActive.main===z.userData.topic.id?.14:.07;z.userData.el.style.opacity=!liveTopics||liveTopics.has(z.userData.topic.id)?'1':'.18'})}
+const dTmp=new THREE.Vector3(),topDocs=new Set(DN<=12?dIds:[]);
+function docLabelTick(){requestAnimationFrame(docLabelTick);if(!docMode)return;const s=docFocusSet();const near=dR*.35,far=dR*1.1;docMeshes.forEach(m=>{const el=m.userData.el;let o;if(s)o=el.dataset.on==='1'?1:0;else if(topDocs.has(m.userData.doc.id))o=.95;else{m.getWorldPosition(dTmp);o=Math.max(0,Math.min(1,(far-camera.position.distanceTo(dTmp))/(far-near)))}el.style.opacity=String(o);el.style.visibility=o>.02?'visible':'hidden'});dArrows.forEach(a=>{const show=a.el.dataset.on==='1';a.el.style.opacity=show?'1':'0';a.el.style.visibility=show?'visible':'hidden'})}docLabelTick();
+function focusDocs(list){const pts=list.map(id=>dPos.get(id)).filter(Boolean);if(!pts.length)return;const box=new THREE.Box3().setFromPoints(pts);const c=box.getCenter(new THREE.Vector3());const radius=Math.max(7,box.getSize(new THREE.Vector3()).length()/2+4);const dist=radius/Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*1.3;const dir=camera.position.clone().sub(controls.target);if(dir.lengthSq()<.001)dir.set(0,0,1);dir.normalize();if(!sidePanel.classList.contains('collapsed')){camera.updateMatrixWorld();const w=2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect;c.add(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0).normalize().multiplyScalar((sidePanel.offsetWidth+16)/innerWidth*w/2))}focus={from:camera.position.clone(),to:c.clone().add(dir.multiplyScalar(dist)),targetFrom:controls.target.clone(),targetTo:c,start:performance.now(),duration:1000}}
+const docRow=(id,prefix,suffix)=>{const d=docById.get(id);return '<div class="step-row" data-doc="'+esc(id)+'">'+(prefix||'')+esc(d.title)+'<span class="doc-type">'+esc(d.type)+'</span>'+(suffix||'')+'</div>'};
+function dPanel(html){sidePanel.classList.remove('empty');sideContent.innerHTML=html;sideContent.querySelectorAll('[data-doc]').forEach(el=>el.addEventListener('click',()=>showDoc(docById.get(el.dataset.doc))));sideContent.querySelectorAll('[data-topic]').forEach(el=>el.addEventListener('click',()=>showTopic(topicById.get(el.dataset.topic))));const back=sideContent.querySelector('#doc-back');if(back)back.onclick=()=>{docActive=null;docHover=null;docHighlight();docIntro();focusDocs(dIds)}}
+function docIntro(){const counts={};DOCS.relations.forEach(r=>{counts[r.type]=(counts[r.type]||0)+1});dPanel('<div class="kind">DOCUMENTATION</div><h2>'+DOCS.docs.length+' documents in '+DOCS.topics.length+' topics</h2><div class="logic-summary">Each coloured zone is a topic and each card is a document. Arrows show how one document relates to another; click a document or a topic to explore.</div><div class="relations"><h3>Topics</h3>'+DOCS.topics.map(t=>'<div class="step-row" data-topic="'+esc(t.id)+'">'+esc(t.emoji+' '+t.name)+' <small>· '+(dGroups.get(t.id)||[]).length+(t.summary?' — '+esc(t.summary):'')+'</small></div>').join('')+'</div><div class="relations"><h3>Relations</h3>'+Object.keys(REL_LABEL).filter(k=>counts[k]).map(k=>'<div class="rel-key"><i style="--c:'+hexd(REL_COLOR[k])+'"></i>'+esc(REL_LABEL[k])+' <small>'+counts[k]+'</small></div>').join('')+'</div>')}
+function showDoc(d){docHover=null;const ids=new Set([d.id,...(dOut.get(d.id)||[]).map(r=>r.to),...(dIn.get(d.id)||[]).map(r=>r.from)]);docActive={kind:'doc',main:d.id,ids};docHighlight();const t=topicById.get(d.topic);const outs=(dOut.get(d.id)||[]).map(r=>docRow(r.to,'→ <em>'+esc(REL_LABEL[r.type]||r.type)+'</em> '));const ins=(dIn.get(d.id)||[]).map(r=>docRow(r.from,'',' → <em>'+esc(REL_LABEL[r.type]||r.type)+'</em> this'));dPanel('<button type="button" id="doc-back">← All topics</button><div class="kind">'+esc(d.type)+'</div><h2>'+esc(d.title)+'</h2><div class="logic-summary">'+esc(d.summary)+'</div>'+(t?'<div class="step-row" data-topic="'+esc(t.id)+'">Topic: '+esc(t.emoji+' '+t.name)+'</div>':'')+'<div class="step-row"><a href="../'+esc(encodeURI(d.path))+'" target="_blank" rel="noopener" style="color:var(--accent)">'+esc(d.path)+'</a></div>'+(outs.length?'<div class="relations"><h3>This document</h3>'+outs.join('')+'</div>':'')+(ins.length?'<div class="relations"><h3>Other documents</h3>'+ins.join('')+'</div>':''));focusDocs([...ids])}
+function showTopic(t){const own=(dGroups.get(t.id)||[]).map(d=>d.id);docActive={kind:'topic',main:t.id,ids:new Set(own)};docHover=null;docHighlight();dPanel('<button type="button" id="doc-back">← All topics</button><div class="kind">TOPIC</div><h2>'+esc(t.emoji+' '+t.name)+'</h2><div class="logic-summary">'+esc(t.summary||'')+'</div><div class="relations">'+own.map(id=>docRow(id)).join('')+'</div>');focusDocs(own.length?own:dIds)}
+VIEWS.docs={enter(){docMode=true;docGroup.visible=true;docActive=null;docHover=null;docHighlight();statsEl.textContent=DOCS.docs.length+' documents · '+DOCS.topics.length+' topics · '+DOCS.relations.length+' relations';docIntro();focusDocs(dIds)},leave(){docMode=false;docGroup.visible=false;docActive=null;docHover=null}};
+document.querySelector('#reset').addEventListener('click',()=>{if(!docMode)return;docActive=null;docHover=null;docHighlight();docIntro();focusDocs(dIds)});
+renderer.domElement.addEventListener('pointerdown',ev=>{docDown={x:ev.clientX,y:ev.clientY}});
+const dPick=ev=>{pointer.x=(ev.clientX/innerWidth)*2-1;pointer.y=-(ev.clientY/innerHeight)*2+1;ray.setFromCamera(pointer,camera);return ray.intersectObjects(docMeshes)[0]};
+renderer.domElement.addEventListener('pointermove',ev=>{if(!docMode)return;const hit=dPick(ev);const d=hit?.object.userData.doc||null;if(d?.id!==docHover?.id){docHover=d;docHighlight()}renderer.domElement.style.cursor=hit?'pointer':'grab'});
+renderer.domElement.addEventListener('click',ev=>{if(!docMode)return;const dragged=docDown&&((ev.clientX-docDown.x)**2+(ev.clientY-docDown.y)**2)>36;docDown=null;if(dragged)return;const hit=dPick(ev);if(hit)showDoc(hit.object.userData.doc);else if(docActive){docActive=null;docHover=null;docHighlight();docIntro();focusDocs(dIds)}});
+}
+document.querySelectorAll('#views [data-view]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+{let savedView=null;try{savedView=localStorage.getItem('cm-graph-view')}catch{}showView(VIEWS[savedView]?savedView:(VIEWS.logic?'logic':VIEWS.docs?'docs':'tech'))}
 </script></body></html>`;
   const outPath = join(cwd, "memory", "graph-3d.html");
   wr(outPath, html);
@@ -8219,6 +8276,284 @@ function printLogicMap(map) {
   for (const journey of map.flow?.journeys || []) console.log(`  ▶ ${journey.title} (${journey.nodes.length} steps)`);
 }
 
+// Documentation view: how the documents of a repository relate, for any kind
+// of documentation (Markdown, PDF, Office... already converted by the
+// knowledge import). Units are the imported documents; topics come from the
+// harness LLM once (folders without an LLM); candidate pairs come from
+// deterministic signals (links, file-name mentions, similar content) and the
+// optional Jev classifier types each relation. Stored in cm_meta (derived
+// data) and refreshed incrementally: only changed documents are reclassified.
+
+const DOC_META_KEY = "doc_map";
+const DOC_MAX_TOPICS = 9;
+const DOC_MAX_PAIRS = 400;
+const DOC_TYPES = ["guide", "reference", "specification", "procedure", "policy", "decision", "report", "notes", "plan", "agreement", "data", "presentation", "changelog", "other"];
+const DOC_TYPE_CRITERIA = {
+  guide: "Explains how to use or understand something (tutorial, manual, handbook, readme)",
+  reference: "Lookup material: glossary, catalogue, list of terms, API or field reference",
+  specification: "Describes how something must be built or must behave (requirements, design, spec)",
+  procedure: "Step-by-step instructions to carry out a task (checklist, runbook, operating procedure)",
+  policy: "Rules or obligations to follow (policy, law, regulation, standard, code of conduct)",
+  decision: "Records a decision and why it was taken (decision record, rationale)",
+  report: "Findings, analysis, audit, research or results",
+  notes: "Meeting notes, minutes, journal or loose notes",
+  plan: "Plan, roadmap, schedule or proposal of future work",
+  agreement: "Contract, agreement, offer, terms between parties",
+  data: "Mostly tabular or raw data, spreadsheet, dataset",
+  presentation: "Slides or pitch material",
+  changelog: "History of changes or release notes",
+  other: "None of the above",
+};
+const DOC_RELATIONS = {
+  references: "A cites, links to or points the reader to B",
+  details: "A explains part of B in more depth",
+  applies: "A puts into practice rules, requirements or decisions stated in B",
+  depends_on: "A requires B to be read, done or valid first",
+  updates: "A replaces, revises or updates B",
+  contradicts: "A states something that conflicts with B",
+  same_subject: "A and B cover the same subject without a more specific link",
+  unrelated: "A and B have no meaningful connection",
+};
+
+// Images (screenshots, covers) and JSON (data/config) stay in the technical
+// view; text documents, office files, spreadsheets and audio/video
+// transcripts are documentation.
+function isDocumentationSource(path) {
+  return !/\.(?:png|jpe?g|webp|gif|bmp|tiff?|svg|ico|json)$/i.test(String(path || ""));
+}
+
+// Converted media notes are labelled "name.ext (kind via tool)": prefer the
+// document's own first heading, else the bare file name.
+function docTitle(label, text, path) {
+  const raw = String(label || path || "");
+  if (!/\((?:document|image|audio|video) via [^)]+\)$/.test(raw)) return raw;
+  const heading = String(text || "").match(/^\s*#{1,3}\s+(.{3,120})$/m);
+  return heading ? heading[1].trim() : raw.replace(/\s*\([^)]*\)$/, "");
+}
+
+function docsFromGraph(d, graph) {
+  const docs = [];
+  for (const node of graph.nodes || []) {
+    const path = node.metadata?.source_path;
+    const match = String(node.id || "").match(/^wiki:([^:]+):(.+)$/);
+    if (!path || !match || !/note$/.test(node.type || "") || !isDocumentationSource(path)) continue;
+    let text = "";
+    try { text = String(getStmt(d, "SELECT body FROM memory_items WHERE id = ?", [`mem_${match[1]}_wiki_${match[2]}`])?.body || ""); } catch {}
+    if (!text.trim()) text = String(node.metadata?.summary || "");
+    if (!text.trim()) continue;
+    text = text.slice(0, 6000);
+    docs.push({ id: node.id, path, title: docTitle(node.label, text, path), text, hash: createHash("sha1").update(text).digest("hex").slice(0, 16) });
+  }
+  return docs.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function docMentionKeys(doc) {
+  const generic = new Set(["readme", "index", "notes", "changelog", "license", "contributing", "todo", "summary", "overview"]);
+  const base = String(doc.path).split("/").pop().replace(/\.[^.]+$/, "").toLowerCase();
+  const keys = [];
+  if (base.length >= 5 && !generic.has(base)) keys.push(base, base.replace(/[-_]+/g, " "));
+  const title = String(doc.title || "").toLowerCase().trim();
+  if (title.length >= 8 && !generic.has(title)) keys.push(title);
+  return [...new Set(keys)];
+}
+
+function docCandidatePairs(docs, links) {
+  const out = [];
+  const seen = new Set();
+  const add = (from, to, via) => {
+    if (!from || !to || from === to) return;
+    const key = [from, to].sort().join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ from, to, via });
+  };
+  for (const link of links || []) add(link.from, link.to, "link");
+  const byPath = new Map(docs.map((doc) => [doc.path, doc.id]));
+  for (const doc of docs) {
+    // markdown links, resolved relative to the document's folder
+    for (const match of String(doc.text).matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)) {
+      const parts = doc.path.split("/").slice(0, -1);
+      for (const segment of decodeURIComponent(match[1]).split("/")) {
+        if (segment === "..") parts.pop();
+        else if (segment && segment !== ".") parts.push(segment);
+      }
+      add(doc.id, byPath.get(parts.join("/")), "link");
+    }
+  }
+  for (const doc of docs) {
+    const text = String(doc.text).toLowerCase();
+    for (const other of docs) if (other !== doc && docMentionKeys(other).some((key) => text.includes(key))) add(doc.id, other.id, "mention");
+  }
+  const vectors = docs.map((doc) => trigramEmbed(`${doc.title} ${doc.text.slice(0, 4000)}`));
+  docs.forEach((doc, i) => {
+    let best = -1, bestScore = 0;
+    docs.forEach((_, j) => {
+      if (i === j) return;
+      const score = cosineSimilarity(vectors[i], vectors[j]);
+      if (score > bestScore) { bestScore = score; best = j; }
+    });
+    if (best >= 0 && bestScore >= 0.55) add(doc.id, docs[best].id, "similar");
+  });
+  return out.slice(0, DOC_MAX_PAIRS);
+}
+
+function normalizeDocTopics(raw, docs) {
+  const topics = [];
+  for (const item of Array.isArray(raw?.topics) ? raw.topics : []) {
+    if (topics.length >= DOC_MAX_TOPICS) break;
+    const name = String(item?.name || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    const id = logicSlug(item?.id || name);
+    if (!name || !id || topics.some((topic) => topic.id === id)) continue;
+    topics.push({ id, name, emoji: Array.from(String(item?.emoji || "📁").trim()).slice(0, 2).join("") || "📁", summary: String(item?.summary || "").replace(/\s+/g, " ").trim().slice(0, 200) });
+  }
+  const ids = new Set(topics.map((topic) => topic.id));
+  const assign = {};
+  for (const entry of Array.isArray(raw?.assign) ? raw.assign : []) {
+    const [index, topic, type] = typeof entry === "string" ? entry.split(":") : [entry?.index, entry?.topic, entry?.type];
+    const doc = docs[Number(index)];
+    const topicId = logicSlug(topic);
+    if (!doc || !ids.has(topicId)) continue;
+    assign[doc.id] = [topicId, DOC_TYPES.includes(type) ? type : "other"];
+  }
+  const used = new Set(Object.values(assign).map(([topic]) => topic));
+  const kept = topics.filter((topic) => used.has(topic.id));
+  if (!kept.length) return null;
+  return { language: String(raw?.language || "").slice(0, 30), topics: kept, assign };
+}
+
+function folderTopics(docs) {
+  const byFolder = new Map();
+  for (const doc of docs) {
+    const folder = doc.path.includes("/") ? doc.path.split("/")[0] : "general";
+    if (!byFolder.has(folder)) byFolder.set(folder, []);
+    byFolder.get(folder).push(doc);
+  }
+  const topics = [...byFolder.keys()].sort().map((folder) => ({ id: logicSlug(folder) || "general", name: folder, emoji: "📁", summary: "" }));
+  const assign = {};
+  for (const [folder, list] of byFolder) for (const doc of list) assign[doc.id] = [logicSlug(folder) || "general", "other"];
+  return { language: "", topics, assign };
+}
+
+function docSummary(text) {
+  const plain = String(text).replace(/^---[\s\S]*?---/, "").replace(/[#>*_`|[\]()]+/g, " ").replace(/\s+/g, " ").trim();
+  const sentence = plain.match(/^(.{20,200}?[.!?])(\s|$)/);
+  return (sentence ? sentence[1] : plain.slice(0, 160)).trim();
+}
+
+function docTopicsPrompt(docs, readme) {
+  const listed = docs.slice(0, 300).map((doc, i) => `${i}. ${doc.path} — ${doc.title} — ${docSummary(doc.text).slice(0, 140)}`);
+  return [
+    "You organise a collection of documents so that anyone can see what it is about. Work read-only and return JSON only.",
+    `Create 3-${DOC_MAX_TOPICS} TOPICS that group the documents by subject (what they are about, not their file format or folder).`,
+    "Write topic names (1-4 plain words) and summaries (one short sentence) in the language of the README excerpt, or of the documents if there is no README.",
+    `Assign every listed document to one topic and one type from: ${DOC_TYPES.join(", ")}.`,
+    'Output: {"language":"...","topics":[{"id":"kebab-id","emoji":"one emoji","name":"...","summary":"..."}],"assign":["0:topic-id:type","1:topic-id:type"]}',
+    `README excerpt:\n${readme || "(none)"}`,
+    `DOCUMENTS (index. path — title — first sentence):\n${listed.join("\n")}`,
+  ].join("\n");
+}
+
+async function docMapPool(items, size, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+  }));
+  return out;
+}
+
+function readDocMap(d) {
+  return safeJsonParse(getMeta(d, DOC_META_KEY) || "null", null);
+}
+
+async function refreshDocMap(d, cwd, harness, graph, opts = {}) {
+  const docs = docsFromGraph(d, graph);
+  if (!docs.length) return { status: "no-docs", map: null };
+  const prev = readDocMap(d);
+  const prevDocs = new Map((prev?.docs || []).map((doc) => [doc.id, doc]));
+  const changed = new Set(docs.filter((doc) => opts.force || prevDocs.get(doc.id)?.hash !== doc.hash).map((doc) => doc.id));
+  if (prev && !changed.size && docs.length === prev.docs.length) return { status: "unchanged", map: prev };
+  const llm = Boolean(harness?.available) && process.env.CM_NO_LLM !== "1";
+  const jev = jevAvailable();
+
+  let topics = prev?.topics || null, assign = {}, language = prev?.language || "", error = "";
+  if (opts.force || !topics || changed.size > Math.max(3, docs.length * 0.3)) {
+    let built = null;
+    if (llm) {
+      const result = runHarnessPrompt(harness, docTopicsPrompt(docs, logicReadmeExcerpt(cwd)), cwd, { timeout: Number(process.env.CM_LLM_TIMEOUT_MS || 120000) });
+      built = normalizeDocTopics(result.data, docs);
+      if (!built) error = String(result.error || "topics: invalid JSON").split("\n").pop().trim().slice(0, 200);
+    }
+    if (!built && (!topics || opts.force)) built = folderTopics(docs);
+    if (built) ({ topics, assign, language } = { topics: built.topics, assign: built.assign, language: built.language || language });
+  }
+  const topicIds = new Set(topics.map((topic) => topic.id));
+
+  const vectors = new Map(docs.map((doc) => [doc.id, trigramEmbed(`${doc.title} ${doc.text.slice(0, 4000)}`)]));
+  const typed = await docMapPool(docs, 6, async (doc) => {
+    const old = prevDocs.get(doc.id);
+    let [topic, type] = assign[doc.id] || (old && !changed.has(doc.id) ? [old.topic, old.type] : [null, null]);
+    if (changed.has(doc.id) && jev) {
+      const questions = { type: { type: "choice", instructions: "What kind of document is this?", criteria: DOC_TYPE_CRITERIA } };
+      if (!topicIds.has(topic)) questions.topic = { type: "choice", instructions: "Which topic does this document belong to?", criteria: Object.fromEntries(topics.map((t) => [t.id, `${t.name}${t.summary ? `: ${t.summary}` : ""}`])) };
+      const answer = await jevAsk(`${doc.title} (${doc.path})\n${doc.text}`, questions);
+      if (answer?.answers?.type?.choice && DOC_TYPES.includes(answer.answers.type.choice)) type = answer.answers.type.choice;
+      if (answer?.answers?.topic?.choice && topicIds.has(answer.answers.topic.choice)) topic = answer.answers.topic.choice;
+    }
+    return { doc, topic, type: type || "other" };
+  });
+  // Documents still without a topic join the topic of their most similar document.
+  for (const item of typed) {
+    if (topicIds.has(item.topic)) continue;
+    let best = null, bestScore = -1;
+    for (const other of typed) {
+      if (other === item || !topicIds.has(other.topic)) continue;
+      const score = cosineSimilarity(vectors.get(item.doc.id), vectors.get(other.doc.id));
+      if (score > bestScore) { bestScore = score; best = other.topic; }
+    }
+    item.topic = best || topics[0].id;
+  }
+
+  const links = [];
+  const docIds = new Set(docs.map((doc) => doc.id));
+  for (const edge of graph.edges || []) if (edge.relation === "links_to" && docIds.has(edge.source) && docIds.has(edge.target)) links.push({ from: edge.source, to: edge.target });
+  const byId = new Map(docs.map((doc) => [doc.id, doc]));
+  const prevRelations = new Map((prev?.relations || []).map((rel) => [[rel.from, rel.to].sort().join("|"), rel]));
+  const relations = (await docMapPool(docCandidatePairs(docs, links), 6, async (pair) => {
+    const old = prevRelations.get([pair.from, pair.to].sort().join("|"));
+    if (old && !changed.has(pair.from) && !changed.has(pair.to)) return old;
+    const fallback = { from: pair.from, to: pair.to, type: pair.via === "similar" ? "same_subject" : "references", via: pair.via, confidence: null };
+    if (!jev) return fallback;
+    const a = byId.get(pair.from), b = byId.get(pair.to);
+    const answer = await jevAsk(`DOCUMENT A — ${a.title} (${a.path})\n${a.text.slice(0, 2500)}\n\nDOCUMENT B — ${b.title} (${b.path})\n${b.text.slice(0, 2500)}`, {
+      relation: { type: "choice", instructions: "How is DOCUMENT A related to DOCUMENT B?", criteria: DOC_RELATIONS },
+    });
+    const choice = answer?.answers?.relation?.choice;
+    if (!choice || !DOC_RELATIONS[choice]) return fallback;
+    const confidence = Number(answer.answers.relation.probabilities?.[choice] ?? answer.answers.relation.confidence ?? 0);
+    if (choice === "unrelated" || confidence < 0.5) return pair.via === "link" ? fallback : null;
+    return { from: pair.from, to: pair.to, type: choice, via: "jev", confidence: Math.round(confidence * 100) / 100 };
+  })).filter(Boolean);
+
+  const usedTopics = new Set(typed.map((item) => item.topic));
+  const map = {
+    language,
+    generated_at: nowIso(),
+    topics: topics.filter((topic) => usedTopics.has(topic.id)),
+    docs: typed.map(({ doc, topic, type }) => ({ id: doc.id, path: doc.path, title: doc.title, type, topic, summary: docSummary(doc.text), hash: doc.hash })),
+    relations,
+  };
+  setMeta(d, DOC_META_KEY, JSON.stringify(map));
+  return { status: "updated", map, error };
+}
+
+function docStatusLine(result) {
+  if (result.status === "no-docs") return "Documentation view: no documents imported yet (run cm update --memory --deep).";
+  const m = result.map;
+  const typedByJev = m.relations.filter((rel) => rel.via === "jev").length;
+  return `Documentation view: ${m.docs.length} documents, ${m.topics.length} topics, ${m.relations.length} relations${typedByJev ? ` (${typedByJev} typed by Jev)` : ""} (${result.status}${result.error ? `; ${result.error}` : ""}).`;
+}
+
 const TECH_ALIASES = {
   "typescript": "TypeScript", "ts": "TypeScript", "javascript": "JavaScript", "js": "JavaScript",
   "node": "Node.js", "nodejs": "Node.js", "react": "React", "reactjs": "React",
@@ -8547,12 +8882,14 @@ async function runDeepProjectUpdate(d, cwd, opts = {}) {
   const communities = applyGraphCommunities(d, cwd);
   const logic = refreshLogicMap(d, cwd, llmHarness, loadGraphFromStore(d));
   console.log(logicStatusLine(logic));
+  const docMap = await refreshDocMap(d, cwd, llmHarness, loadGraphFromStore(d));
+  console.log(docStatusLine(docMap));
   const snapshot = await refreshSnapshotMemory(d, cwd);
   refreshProjections(d, cwd);
   syncGraphProjection(d, cwd);
   const graph = loadGraphFromStore(d);
   const html2d = exportHTML(graph, cwd);
-  const html3d = export3DHTML(graph, cwd, logic.map);
+  const html3d = export3DHTML(graph, cwd, logic.map, docMap.map);
   const report = writeGraphReport(graph, cwd);
   const visual = graphForVisualization(graph);
   console.log(`Graph complete: ${graph.nodes.length} evidence nodes, ${graph.edges.length} evidence relations, ${communities.communities} communities.`);
@@ -10248,7 +10585,7 @@ async function main() {
         const view = graphForVisualization(g);
         console.log(`Exported interactive HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "html3d" || format === "3d") {
-        const out = export3DHTML(g, c, readLogicMap(d));
+        const out = export3DHTML(g, c, readLogicMap(d), readDocMap(d));
         const view = graphForVisualization(g);
         console.log(`Exported interactive 3D HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "svg") {
@@ -10270,6 +10607,24 @@ async function main() {
     return;
   }
 
+  if (cmd === "docs") {
+    const { flags: dflags } = parseArgs(a.slice(1));
+    const harness = dflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
+    const graph = loadGraphFromStore(d);
+    const docs = await refreshDocMap(d, c, harness, graph, { force: Boolean(dflags.force) });
+    if (dflags.json) console.log(JSON.stringify(docs.map, null, 2));
+    else {
+      console.log(docStatusLine(docs));
+      const byId = new Map((docs.map?.docs || []).map((doc) => [doc.id, doc]));
+      for (const topic of docs.map?.topics || []) console.log(`  ${topic.emoji} ${topic.name}: ${(docs.map.docs || []).filter((doc) => doc.topic === topic.id).length} document(s)`);
+      for (const rel of (docs.map?.relations || []).slice(0, 30)) console.log(`  ${byId.get(rel.from)?.title} → ${rel.type.replace("_", " ")} → ${byId.get(rel.to)?.title}`);
+    }
+    const out = export3DHTML(graph, c, readLogicMap(d), docs.map);
+    if (!dflags.json) console.log(`3D graph: ${out}`);
+    d.close();
+    return;
+  }
+
   if (cmd === "logic") {
     const { flags: lflags } = parseArgs(a.slice(1));
     const harness = lflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
@@ -10279,7 +10634,7 @@ async function main() {
       console.log(logicStatusLine(logic));
       printLogicMap(logic.map);
     }
-    const out = export3DHTML(loadGraphFromStore(d), c, logic.map);
+    const out = export3DHTML(loadGraphFromStore(d), c, logic.map, readDocMap(d));
     if (!lflags.json) console.log(`3D graph: ${out}`);
     d.close();
     return;

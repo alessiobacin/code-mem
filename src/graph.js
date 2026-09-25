@@ -428,7 +428,10 @@ function collectMediaFiles(rootPath) {
     let info;
     try { info = statSync(current); } catch { return; }
     if (info.isFile()) {
-      if (isMediaFile(current) && !isWikiFile(current)) files.push(current);
+      // CM_IMPORT_NO_IMAGES=1 keeps documents/audio/video but skips images
+      // (vision/OCR is the slow part of a first import).
+      const skipImage = process.env.CM_IMPORT_NO_IMAGES === "1" && MEDIA_IMAGE_EXT.has(extname(current).toLowerCase());
+      if (isMediaFile(current) && !isWikiFile(current) && !skipImage) files.push(current);
       return;
     }
     if (!info.isDirectory()) return;

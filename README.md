@@ -158,6 +158,29 @@ cm logic --force    # rename everything even if the code structure is unchanged
 cm logic --json     # machine-readable map
 ```
 
+### Third view: "Documentation"
+
+The **📚 Documentation** view shows how the documents of a repository relate,
+for any kind of documentation: Markdown, PDF, Word/OpenDocument/RTF, slides,
+spreadsheets, HTML and audio/video transcripts (converted to text by the
+knowledge import; images and JSON stay in the technical view).
+
+- Documents are grouped in **topics** (coloured zones), named once by the
+  harness LLM in the README's language; without an LLM, folders are topics.
+- Candidate relations come from deterministic signals: explicit links,
+  mentions of another document's file name or title, and similar content.
+  With [Jev](#settings-and-the-optional-jev-classifier) each pair gets a typed
+  relation (references, details, applies, depends on, updates, contradicts,
+  same subject) and each document a type (guide, procedure, policy, report…).
+- Click a document for its summary, topic, file and related documents; click
+  a topic for its documents.
+- Refreshed by `cm update --memory --deep`; only changed documents are
+  reclassified. Build it on demand with `cm docs [--force] [--json]`.
+
+Media conversion is cached by file content, so unchanged documents and images
+are never converted again. `CM_IMPORT_NO_IMAGES=1` skips images on an import
+(documents, audio and video are still imported).
+
 ## Settings and the optional Jev classifier
 
 `cm config` keeps persistent settings (endpoints, API keys, switches) so they

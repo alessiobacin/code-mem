@@ -981,7 +981,7 @@ async function main() {
         const view = graphForVisualization(g);
         console.log(`Exported interactive HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "html3d" || format === "3d") {
-        const out = export3DHTML(g, c, readLogicMap(d));
+        const out = export3DHTML(g, c, readLogicMap(d), readDocMap(d));
         const view = graphForVisualization(g);
         console.log(`Exported interactive 3D HTML to ${out} (${view.mode} view: ${view.nodes.length} nodes, ${view.edges.length} relations)`);
       } else if (format === "svg") {
@@ -1003,6 +1003,24 @@ async function main() {
     return;
   }
 
+  if (cmd === "docs") {
+    const { flags: dflags } = parseArgs(a.slice(1));
+    const harness = dflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
+    const graph = loadGraphFromStore(d);
+    const docs = await refreshDocMap(d, c, harness, graph, { force: Boolean(dflags.force) });
+    if (dflags.json) console.log(JSON.stringify(docs.map, null, 2));
+    else {
+      console.log(docStatusLine(docs));
+      const byId = new Map((docs.map?.docs || []).map((doc) => [doc.id, doc]));
+      for (const topic of docs.map?.topics || []) console.log(`  ${topic.emoji} ${topic.name}: ${(docs.map.docs || []).filter((doc) => doc.topic === topic.id).length} document(s)`);
+      for (const rel of (docs.map?.relations || []).slice(0, 30)) console.log(`  ${byId.get(rel.from)?.title} → ${rel.type.replace("_", " ")} → ${byId.get(rel.to)?.title}`);
+    }
+    const out = export3DHTML(graph, c, readLogicMap(d), docs.map);
+    if (!dflags.json) console.log(`3D graph: ${out}`);
+    d.close();
+    return;
+  }
+
   if (cmd === "logic") {
     const { flags: lflags } = parseArgs(a.slice(1));
     const harness = lflags["no-llm"] ? null : chooseHarness(detectHarnesses(c));
@@ -1012,7 +1030,7 @@ async function main() {
       console.log(logicStatusLine(logic));
       printLogicMap(logic.map);
     }
-    const out = export3DHTML(loadGraphFromStore(d), c, logic.map);
+    const out = export3DHTML(loadGraphFromStore(d), c, logic.map, readDocMap(d));
     if (!lflags.json) console.log(`3D graph: ${out}`);
     d.close();
     return;
