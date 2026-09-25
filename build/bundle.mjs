@@ -22,6 +22,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ORDER = [
   "src/globals.js",
   "src/fsutil.js",
+  "src/config.js",    // cm config: persistent settings (global/project env files)
   "src/capture.js",
   "src/db.js",        // od() references ensureMessagesSearchTables (db.js)
   "src/cognitive.js", // evidence, temporal belief lifecycle, gate and working set
@@ -37,6 +38,7 @@ const ORDER = [
   "src/context.js",
   "src/harness.js",      // harness discovery, settings metadata, local skill/command integration
   "src/llm.js",          // read-only harness-backed semantic bridge
+  "src/jev.js",          // optional Jev typed-decision client + credit alerts
   "src/memory-ops.js",
   "src/mcp.js",         // cm mcp stdio server
   "src/graph-export.js", // graph exports and community operations

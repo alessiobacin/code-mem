@@ -158,6 +158,34 @@ cm logic --force    # rename everything even if the code structure is unchanged
 cm logic --json     # machine-readable map
 ```
 
+## Settings and the optional Jev classifier
+
+`cm config` keeps persistent settings (endpoints, API keys, switches) so they
+do not have to live in your shell profile:
+
+```bash
+cm config set TYPESAFE_API_KEY            # value asked without echo (never in shell history)
+cm config set CM_JEV_MODEL jev-latest
+cm config set CM_JEV off --project        # per-project override, e.g. a repo with sensitive data
+cm config list                            # secrets are masked
+cm config unset CM_JEV_MODEL
+```
+
+Global settings live in `~/.cm/config.env`, project settings in
+`memory/config.env` (mode 600, git-ignored). Precedence: process environment >
+project > global.
+
+[Jev](https://typesafe.ai) (TypeSafe AI) is an optional "System One" model for
+fast typed decisions (choice / score / yes-no probability). cm uses it for
+classification when `TYPESAFE_API_KEY` is set and falls back to the harness LLM
+or deterministic rules otherwise. `cm jev status` shows the state and
+`cm jev test` checks the key. When Jev reports missing credit (HTTP 402) or a
+rejected key, cm records it in `~/.cm/jev-status.json`, shows a macOS
+notification once, prints a warning on every cm command and tells the agent in
+the session-start context; calls pause for an hour, and the first successful
+call (`cm jev test --force`) clears the alert. Settings: `CM_JEV_ENDPOINT`,
+`CM_JEV_MODEL`, `CM_JEV=off`, `CM_JEV_TIMEOUT_MS`, `CM_NO_NOTIFY=1`.
+
 ## Global local graph service
 
 The installer creates one per-user `cm-graphd` service on loopback. It serves every registered repository while keeping each project's memory database, harness settings, provider selection, and chat context isolated.

@@ -19,6 +19,7 @@ declarations are hoisted. `build/bundle.mjs` lists the canonical ORDER array.
 |------|----------|
 | `globals.js` | requires, VERSION/consts, HARNESS_CONFIGS, TASK_TEMPLATES, SECTION_CONFIG, snippet, harnessComment |
 | `fsutil.js` | path/fs helpers: mp, rd, wr, rg, wg, nowIso, getGitBranch, CM_DEPS_DIR … |
+| `config.js` | `cm config`: global `~/.cm/config.env` + project `memory/config.env`, masked secrets, precedence env > project > global |
 | `capture.js` | **capture layer**: captureSessionId, captureMessage, captureAuto, captureAutoRecall, captureDaemonHeartbeat |
 | `db.js` | DB init `od()` (incl. ensureMessagesSearchTables) + runStmt/allStmt/getStmt |
 | `cognitive.js` | episodes, evidence, deterministic intake gate, temporal belief state, verification, working set, consolidation ledger |
@@ -34,6 +35,7 @@ declarations are hoisted. `build/bundle.mjs` lists the canonical ORDER array.
 | `context.js` | sc (repo snapshot), setupHarness, installHooks, printRows |
 | `harness.js` | harness detection, safe settings metadata, project skills and `/cm-update` integration |
 | `llm.js` | read-only harness CLI bridge and validated semantic relations |
+| `jev.js` | optional Jev (TypeSafe) typed decisions: choice/score/noul, credit status + alerts |
 | `memory-ops.js` | replace/remove/consolidate/prune, acquireLock, **watchLoop** |
 | `mcp.js` | `cm mcp` stdio JSON-RPC server (memory_search/timeline/get) |
 | `graph-export.js` | communities + GraphML/Neo4j/HTML/3D HTML/SVG export |

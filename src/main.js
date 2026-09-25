@@ -5,6 +5,12 @@ async function main() {
     return;
   }
   const c = process.cwd();
+  // Persistent settings (cm config) become environment before anything reads it.
+  loadCmConfig(c);
+  if (a[0] !== "jev" && a[0] !== "hook") {
+    const alert = jevSettings().key ? jevAlertText() : "";
+    if (alert) console.error(alert);
+  }
   // Help dispatch — obscured corollary surfaces are shown only with --full.
   // Accepted forms: `cm help`, `cm help --full`, `cm -h`, `cm --full help`,
   // `cm --full` (bare). Bare/cm help without --full stays lean (API unchanged).
@@ -17,6 +23,16 @@ async function main() {
   const cmd = a[0];
   const { flags: earlyFlags } = parseArgs(a.slice(1));
   const globalMemoryRequested = Boolean(earlyFlags.global || earlyFlags.scope === "global");
+
+  if (cmd === "config") {
+    await cmdConfig(c, a.slice(1));
+    return;
+  }
+
+  if (cmd === "jev") {
+    await cmdJev(a.slice(1));
+    return;
+  }
 
   if (cmd === "setup") {
     await setupHarness();
@@ -386,6 +402,8 @@ async function main() {
       const q = buildAutoQuery(c);
       captureAutoRecall(d, c);
       console.log(`## Contextual Memory (auto-recall)`);
+      const jevAlert = jevSettings().key ? jevAlertText() : "";
+      if (jevAlert) console.log(`- ${jevAlert} (tell the user)`);
       const recalled = await recallMemories(d, c, q, 1, 8, "hybrid");
       if (!recalled.ranked.length) console.log("No relevant memories from current context.");
       for (const e of recalled.ranked) {

@@ -317,7 +317,7 @@ function isWikiFile(filePath) {
 // whisper (or ffmpeg metadata when whisper is unavailable). Every converter
 // is optional and best-effort: missing binaries degrade to a stub note that
 // records the asset instead of failing the import.
-const MEDIA_TEXT_EXT = new Set([".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".epub", ".html", ".htm", ".csv", ".json"]);
+const MEDIA_TEXT_EXT = new Set([".pdf", ".docx", ".doc", ".odt", ".rtf", ".pptx", ".xlsx", ".xls", ".epub", ".html", ".htm", ".csv", ".json"]);
 const MEDIA_IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"]);
 const MEDIA_AUDIO_EXT = new Set([".mp3", ".wav", ".m4a", ".ogg", ".flac"]);
 const MEDIA_VIDEO_EXT = new Set([".mp4", ".mov", ".mkv", ".webm", ".avi"]);
@@ -351,6 +351,15 @@ function mediaFileToText(filePath, cwd) {
   if (MEDIA_TEXT_EXT.has(ext) && commandAvailable("markitdown")) {
     const text = runMediaCommand("markitdown", [filePath], 120000);
     if (text && text.length > 40) return { text: text.slice(0, 24000), via: "markitdown", kind };
+  }
+  // 1b) formats markitdown lacks (.doc/.odt/.rtf/...): pandoc, then macOS textutil.
+  if (MEDIA_TEXT_EXT.has(ext) && [".odt", ".rtf", ".docx", ".epub", ".html", ".htm"].includes(ext) && commandAvailable("pandoc")) {
+    const text = runMediaCommand("pandoc", [filePath, "-t", "gfm", "--wrap=none"], 120000);
+    if (text && text.length > 40) return { text: text.slice(0, 24000), via: "pandoc", kind };
+  }
+  if ([".doc", ".rtf", ".odt", ".docx"].includes(ext) && commandAvailable("textutil")) {
+    const text = runMediaCommand("textutil", ["-convert", "txt", "-stdout", filePath], 120000);
+    if (text && text.length > 40) return { text: text.slice(0, 24000), via: "textutil", kind };
   }
   // 2) images: harness vision first (understands layout/diagrams/charts,
   // like graphify's vision subagents — OCR alone cannot do this), then
@@ -386,6 +395,26 @@ function mediaFileToText(filePath, cwd) {
   }
   return { text: "", via: "unavailable", kind };
 }
+// Conversion (markitdown, OCR, vision LLM, whisper) is the slow part of an
+// import: cache it by file content so unchanged media are never redone.
+const MEDIA_CACHE_VERSION = "1";
+function cachedMediaFileToText(d, filePath, cwd) {
+  let hash = "";
+  try { hash = `${createHash("sha256").update(readFileSync(filePath)).digest("hex")}:${MEDIA_CACHE_VERSION}`; } catch {}
+  if (hash) {
+    try {
+      runStmt(d, "CREATE TABLE IF NOT EXISTS media_cache(hash TEXT PRIMARY KEY, kind TEXT, via TEXT, text TEXT NOT NULL, vision_json TEXT, created_at TEXT NOT NULL)");
+      const row = getStmt(d, "SELECT kind, via, text, vision_json FROM media_cache WHERE hash = ?", [hash]);
+      if (row) return { text: row.text, via: row.via, kind: row.kind, vision: safeJsonParse(row.vision_json || "null", null) || undefined, cached: true };
+    } catch {}
+  }
+  const converted = mediaFileToText(filePath, cwd);
+  if (hash && converted.text) {
+    try { runStmt(d, "INSERT OR REPLACE INTO media_cache(hash,kind,via,text,vision_json,created_at) VALUES(?,?,?,?,?,?)", [hash, converted.kind, converted.via, converted.text, converted.vision ? JSON.stringify(converted.vision) : null, nowIso()]); } catch {}
+  }
+  return converted;
+}
+
 function collectMediaFiles(rootPath) {
   const files = [];
   const ignored = new Set([".git", ".obsidian", ".trash", "node_modules", "attachments", "memory", "dist", "build", "coverage", ".next", ".venv", "venv", "__pycache__"]);
@@ -699,7 +728,7 @@ async function importFromWiki(d, cwd, rootPath, format = "wiki", opts = {}) {
   const visionByNote = new Map(); // note id -> vision { labels, edges }
   for (const filePath of mediaFiles) {
     const relative = filePath.slice(root.length).replace(/^[/\\]+/, "").replace(/\\/g, "/");
-    const converted = mediaFileToText(filePath, cwd);
+    const converted = cachedMediaFileToText(d, filePath, cwd);
     if (!converted.text) { mediaFailed += 1; continue; }
     mediaConverted += 1;
     const title = `${basename(filePath)} (${converted.kind} via ${converted.via})`;

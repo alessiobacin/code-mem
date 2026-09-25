@@ -73,6 +73,8 @@ Usage:
   cm serve                                 (open graph through the global local service)
   cm service install|start|status|restart|stop (one per-user service, project-isolated)
   cm projects [list|show|recall|graph]    (global managed-project catalog; cross-project access is explicit)
+  cm config list|get|set|unset NAME [value] [--project]  (persistent settings; API keys masked)
+  cm jev status|test         (optional Jev classifier; credit alerts)
   cm version
   cm explain
   cm help        (add --full to see all commands)
@@ -137,6 +139,8 @@ function glFull() {
   cm gs
   cm gi
   cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
+  cm config list|get|set|unset NAME [value] [--project]  Persistent settings (API keys masked; value read from stdin when omitted)
+  cm jev status|test [--force]  Optional Jev typed-decision classifier (TYPESAFE_API_KEY)
   cm logic [--force] [--json] [--no-llm]  Plain-language "How it works" map (parts + flows) -> 3D view toggle
 
 [--full] Scan commands:

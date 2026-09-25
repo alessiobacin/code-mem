@@ -24,7 +24,7 @@ const { execSync, execFileSync, spawnSync, spawn } = require("child_process");
 const http = require("http");
 const { createHash } = require("crypto");
 const readline = require("readline");
-const VERSION = "0.9.2";
+const VERSION = "0.10.0";
 const OLLAMA_BASE = "http://localhost:11434";
 const EMBED_MODEL = "nomic-embed-text";
 const REPO_RAW_BASE = "https://raw.githubusercontent.com/alessiobacin/code-mem/main";
@@ -380,6 +380,112 @@ function getGitBranch(cwd) {
 }
 
 const CM_DEPS_DIR = join(process.env.HOME || "/tmp", ".cm", "deps");
+
+// `cm config`: persistent settings (endpoints, API keys, feature switches).
+// Global ~/.cm/config.env and project memory/config.env are plain KEY=VALUE
+// files, mode 600. Precedence: process env > project > global. Secrets are
+// masked when printed and are read from stdin/hidden prompt so they never
+// land in shell history.
+
+const CONFIG_FILE = "config.env";
+const CONFIG_SECRET_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASS)$/i;
+
+function configPaths(cwd) {
+  return { global: join(globalRoot(), CONFIG_FILE), project: mp(cwd, CONFIG_FILE) };
+}
+
+function readEnvFile(path) {
+  const out = new Map();
+  let raw = "";
+  try { raw = readFileSync(path, "utf8"); } catch { return out; }
+  for (const line of raw.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
+    if (match) out.set(match[1], match[2].trim());
+  }
+  return out;
+}
+
+function writeEnvFile(path, entries) {
+  mkdirSync(dirname(path), { recursive: true });
+  const body = [...entries].map(([key, value]) => `${key}=${value}`).join("\n");
+  writeFileSync(path, body ? `${body}\n` : "", { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+// Applied once at startup, before any setting is read.
+function loadCmConfig(cwd) {
+  const paths = configPaths(cwd);
+  const merged = new Map([...readEnvFile(paths.global), ...readEnvFile(paths.project)]);
+  for (const [key, value] of merged) if (process.env[key] === undefined) process.env[key] = value;
+}
+
+function maskConfigValue(key, value) {
+  if (!CONFIG_SECRET_RE.test(key) || !value) return value;
+  return `${"•".repeat(8)}${value.slice(-4)}`;
+}
+
+function readSecretInput(prompt) {
+  if (!process.stdin.isTTY) {
+    try { return readFileSync(0, "utf8").split(/\r?\n/)[0].trim(); } catch { return ""; }
+  }
+  return new Promise((resolveValue) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    rl._writeToOutput = (text) => { if (text.includes(prompt)) process.stdout.write(text); };
+    rl.question(prompt, (answer) => { rl.close(); process.stdout.write("\n"); resolveValue(String(answer || "").trim()); });
+  });
+}
+
+async function cmdConfig(cwd, args) {
+  const { flags, rest } = parseArgs(args);
+  const [sub = "list", key, ...valueParts] = rest;
+  const paths = configPaths(cwd);
+  const scopePath = flags.project ? paths.project : paths.global;
+  if (key !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+    console.error(`Invalid setting name: ${key}`);
+    process.exit(1);
+  }
+  if (sub === "list") {
+    const global = readEnvFile(paths.global), project = readEnvFile(paths.project);
+    if (!global.size && !project.size) { console.log("No cm settings. Set one with: cm config set NAME [value] [--project]"); return; }
+    for (const [label, entries] of [[`global (${paths.global})`, global], [`project (${paths.project})`, project]]) {
+      if (!entries.size) continue;
+      console.log(`# ${label}`);
+      for (const [name, value] of entries) console.log(`${name}=${maskConfigValue(name, value)}`);
+    }
+    return;
+  }
+  if (!key) { console.error("Usage: cm config set|get|unset NAME [value] [--project]"); process.exit(1); }
+  if (sub === "get") {
+    const value = process.env[key] ?? "";
+    console.log(flags.reveal ? value : maskConfigValue(key, value));
+    if (!value) process.exitCode = 1;
+    return;
+  }
+  const entries = readEnvFile(scopePath);
+  if (sub === "unset") {
+    entries.delete(key);
+    writeEnvFile(scopePath, entries);
+    console.log(`Removed ${key} (${flags.project ? "project" : "global"}).`);
+    return;
+  }
+  if (sub === "set") {
+    let value = valueParts.join(" ").trim();
+    if (!value) value = await readSecretInput(`${key}: `);
+    if (!value || /[\r\n]/.test(value)) { console.error(`No value for ${key}.`); process.exit(1); }
+    entries.set(key, value);
+    writeEnvFile(scopePath, entries);
+    if (flags.project) {
+      // memory/ is committed in some repos: keep project settings out of git.
+      const ignore = mp(cwd, ".gitignore");
+      const current = existsSync(ignore) ? readFileSync(ignore, "utf8") : "";
+      if (!/^config\.env$/m.test(current)) writeFileSync(ignore, `${current}${current && !current.endsWith("\n") ? "\n" : ""}config.env\n`);
+    }
+    console.log(`Saved ${key}=${maskConfigValue(key, value)} (${flags.project ? "project" : "global"}).`);
+    return;
+  }
+  console.error(`Unknown config command: ${sub}`);
+  process.exit(1);
+}
 
 // ─── Capture layer (messages writer) ──────────────────────────────────────
 // The SQLite `messages` table already exists (od() creates it) with FTS5 +
@@ -2477,7 +2583,7 @@ function isWikiFile(filePath) {
 // whisper (or ffmpeg metadata when whisper is unavailable). Every converter
 // is optional and best-effort: missing binaries degrade to a stub note that
 // records the asset instead of failing the import.
-const MEDIA_TEXT_EXT = new Set([".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".epub", ".html", ".htm", ".csv", ".json"]);
+const MEDIA_TEXT_EXT = new Set([".pdf", ".docx", ".doc", ".odt", ".rtf", ".pptx", ".xlsx", ".xls", ".epub", ".html", ".htm", ".csv", ".json"]);
 const MEDIA_IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"]);
 const MEDIA_AUDIO_EXT = new Set([".mp3", ".wav", ".m4a", ".ogg", ".flac"]);
 const MEDIA_VIDEO_EXT = new Set([".mp4", ".mov", ".mkv", ".webm", ".avi"]);
@@ -2511,6 +2617,15 @@ function mediaFileToText(filePath, cwd) {
   if (MEDIA_TEXT_EXT.has(ext) && commandAvailable("markitdown")) {
     const text = runMediaCommand("markitdown", [filePath], 120000);
     if (text && text.length > 40) return { text: text.slice(0, 24000), via: "markitdown", kind };
+  }
+  // 1b) formats markitdown lacks (.doc/.odt/.rtf/...): pandoc, then macOS textutil.
+  if (MEDIA_TEXT_EXT.has(ext) && [".odt", ".rtf", ".docx", ".epub", ".html", ".htm"].includes(ext) && commandAvailable("pandoc")) {
+    const text = runMediaCommand("pandoc", [filePath, "-t", "gfm", "--wrap=none"], 120000);
+    if (text && text.length > 40) return { text: text.slice(0, 24000), via: "pandoc", kind };
+  }
+  if ([".doc", ".rtf", ".odt", ".docx"].includes(ext) && commandAvailable("textutil")) {
+    const text = runMediaCommand("textutil", ["-convert", "txt", "-stdout", filePath], 120000);
+    if (text && text.length > 40) return { text: text.slice(0, 24000), via: "textutil", kind };
   }
   // 2) images: harness vision first (understands layout/diagrams/charts,
   // like graphify's vision subagents — OCR alone cannot do this), then
@@ -2546,6 +2661,26 @@ function mediaFileToText(filePath, cwd) {
   }
   return { text: "", via: "unavailable", kind };
 }
+// Conversion (markitdown, OCR, vision LLM, whisper) is the slow part of an
+// import: cache it by file content so unchanged media are never redone.
+const MEDIA_CACHE_VERSION = "1";
+function cachedMediaFileToText(d, filePath, cwd) {
+  let hash = "";
+  try { hash = `${createHash("sha256").update(readFileSync(filePath)).digest("hex")}:${MEDIA_CACHE_VERSION}`; } catch {}
+  if (hash) {
+    try {
+      runStmt(d, "CREATE TABLE IF NOT EXISTS media_cache(hash TEXT PRIMARY KEY, kind TEXT, via TEXT, text TEXT NOT NULL, vision_json TEXT, created_at TEXT NOT NULL)");
+      const row = getStmt(d, "SELECT kind, via, text, vision_json FROM media_cache WHERE hash = ?", [hash]);
+      if (row) return { text: row.text, via: row.via, kind: row.kind, vision: safeJsonParse(row.vision_json || "null", null) || undefined, cached: true };
+    } catch {}
+  }
+  const converted = mediaFileToText(filePath, cwd);
+  if (hash && converted.text) {
+    try { runStmt(d, "INSERT OR REPLACE INTO media_cache(hash,kind,via,text,vision_json,created_at) VALUES(?,?,?,?,?,?)", [hash, converted.kind, converted.via, converted.text, converted.vision ? JSON.stringify(converted.vision) : null, nowIso()]); } catch {}
+  }
+  return converted;
+}
+
 function collectMediaFiles(rootPath) {
   const files = [];
   const ignored = new Set([".git", ".obsidian", ".trash", "node_modules", "attachments", "memory", "dist", "build", "coverage", ".next", ".venv", "venv", "__pycache__"]);
@@ -2859,7 +2994,7 @@ async function importFromWiki(d, cwd, rootPath, format = "wiki", opts = {}) {
   const visionByNote = new Map(); // note id -> vision { labels, edges }
   for (const filePath of mediaFiles) {
     const relative = filePath.slice(root.length).replace(/^[/\\]+/, "").replace(/\\/g, "/");
-    const converted = mediaFileToText(filePath, cwd);
+    const converted = cachedMediaFileToText(d, filePath, cwd);
     if (!converted.text) { mediaFailed += 1; continue; }
     mediaConverted += 1;
     const title = `${basename(filePath)} (${converted.kind} via ${converted.via})`;
@@ -3210,6 +3345,8 @@ Usage:
   cm serve                                 (open graph through the global local service)
   cm service install|start|status|restart|stop (one per-user service, project-isolated)
   cm projects [list|show|recall|graph]    (global managed-project catalog; cross-project access is explicit)
+  cm config list|get|set|unset NAME [value] [--project]  (persistent settings; API keys masked)
+  cm jev status|test         (optional Jev classifier; credit alerts)
   cm version
   cm explain
   cm help        (add --full to see all commands)
@@ -3274,6 +3411,8 @@ function glFull() {
   cm gs
   cm gi
   cm report      Narrative graph report (god nodes, surprises, questions) -> memory/GRAPH_REPORT.md
+  cm config list|get|set|unset NAME [value] [--project]  Persistent settings (API keys masked; value read from stdin when omitted)
+  cm jev status|test [--force]  Optional Jev typed-decision classifier (TYPESAFE_API_KEY)
   cm logic [--force] [--json] [--no-llm]  Plain-language "How it works" map (parts + flows) -> 3D view toggle
 
 [--full] Scan commands:
@@ -3469,7 +3608,7 @@ async function runUpdate(force) {
 function parseArgs(parts) {
   const flags = {};
   const rest = [];
-  const booleanFlags = new Set(["force", "daemon", "foreground", "global", "no-start", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "delete-source", "claude-mem", "full", "auto", "memory", "clean", "reset", "accept-candidates", "accept", "llm", "no-llm", "hook-refresh", "dfs"]);
+  const booleanFlags = new Set(["force", "daemon", "foreground", "global", "no-start", "relations", "deep", "no-ast", "apply", "dry-run", "replace", "delete-source", "claude-mem", "full", "auto", "memory", "clean", "reset", "accept-candidates", "accept", "llm", "no-llm", "hook-refresh", "dfs", "reveal"]);
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
     if (part.startsWith("--")) {
@@ -5880,6 +6019,134 @@ function runHarnessSemanticPass(d, cwd, harness, inventory) {
   return { attempted: true, added, model: harness.model || harness.name, error: result.error || "" };
 }
 
+// Optional Jev (TypeSafe AI "System One") client: fast typed decisions
+// (choice / score / noul) for classification. cm never depends on it: every
+// caller falls back to the harness LLM or deterministic rules when jevAsk()
+// returns null. Credit/authorization problems are persisted in
+// ~/.cm/jev-status.json so every cm command, the session_start hook and a
+// desktop notification tell the user (see jevAlertText).
+
+const JEV_DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
+const JEV_RETRY_AFTER_MS = 60 * 60 * 1000;
+
+function jevSettings() {
+  return {
+    key: process.env.TYPESAFE_API_KEY || "",
+    endpoint: process.env.CM_JEV_ENDPOINT || JEV_DEFAULT_ENDPOINT,
+    model: process.env.CM_JEV_MODEL || "jev-latest",
+    disabled: process.env.CM_JEV === "off" || process.env.CM_NO_LLM === "1",
+  };
+}
+
+function jevStatusPath() {
+  return join(globalRoot(), "jev-status.json");
+}
+
+function jevStatus() {
+  try { return JSON.parse(readFileSync(jevStatusPath(), "utf8")); } catch { return { state: "unknown" }; }
+}
+
+function jevAlertText(status = jevStatus()) {
+  if (status.state === "exhausted") return `⚠ Jev credit exhausted since ${status.at} — cm is using fallback classification. Top up at console.typesafe.ai, then run: cm jev test --force`;
+  if (status.state === "unauthorized") return `⚠ Jev API key rejected since ${status.at} — set a valid key with: cm config set TYPESAFE_API_KEY`;
+  return "";
+}
+
+function jevNotify(text) {
+  console.error(text);
+  if (process.env.CM_NO_NOTIFY === "1" || process.platform !== "darwin") return;
+  try {
+    execFileSync("osascript", ["-e", `display notification ${JSON.stringify(text.replace(/^⚠\s*/, ""))} with title "code-mem"`], { stdio: "ignore", timeout: 5000 });
+  } catch {}
+}
+
+function setJevStatus(state, message) {
+  const previous = jevStatus();
+  const next = { state, message: String(message || "").slice(0, 300), at: state === previous.state && previous.at ? previous.at : nowIso(), checked: nowIso() };
+  try {
+    mkdirSync(globalRoot(), { recursive: true });
+    writeFileSync(jevStatusPath(), `${JSON.stringify(next, null, 2)}\n`);
+  } catch {}
+  // Notify on transitions only, not on every call.
+  if (state !== previous.state && state !== "ok") jevNotify(jevAlertText(next));
+  return next;
+}
+
+function jevAvailable(opts = {}) {
+  const settings = jevSettings();
+  if (!settings.key || settings.disabled) return false;
+  const status = jevStatus();
+  if (!opts.force && (status.state === "exhausted" || status.state === "unauthorized")) {
+    return Date.now() - Date.parse(status.checked || status.at || 0) > JEV_RETRY_AFTER_MS;
+  }
+  return true;
+}
+
+// questions: { id: { type: "choice"|"score"|"noul", instructions, criteria } }
+// Returns { model, answers, usage } or null (unavailable, error, no credit).
+async function jevAsk(state, questions, opts = {}) {
+  if (!jevAvailable(opts)) return null;
+  const settings = jevSettings();
+  let response, text = "";
+  try {
+    response = await fetch(settings.endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${settings.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: settings.model, state, questions }),
+      signal: AbortSignal.timeout(Number(process.env.CM_JEV_TIMEOUT_MS || 20000)),
+    });
+    text = await response.text();
+  } catch (error) {
+    if (opts.verbose) console.error(`Jev request failed: ${error.message}`);
+    return null;
+  }
+  if (response.status === 402 || (!response.ok && /credit|quota|balance|insufficient|payment|billing/i.test(text))) {
+    setJevStatus("exhausted", text);
+    return null;
+  }
+  if (response.status === 401 || response.status === 403) {
+    setJevStatus("unauthorized", text);
+    return null;
+  }
+  if (!response.ok) {
+    if (opts.verbose) console.error(`Jev HTTP ${response.status}: ${text.slice(0, 200)}`);
+    return null;
+  }
+  const data = safeJsonParse(text, null);
+  if (!data?.answers) return null;
+  if (jevStatus().state !== "ok") setJevStatus("ok", "");
+  return data;
+}
+
+async function cmdJev(args) {
+  const { flags, rest } = parseArgs(args);
+  const sub = rest[0] || "status";
+  const settings = jevSettings();
+  if (sub === "status") {
+    if (!settings.key) { console.log("Jev: not configured (optional). Enable with: cm config set TYPESAFE_API_KEY"); return; }
+    const status = jevStatus();
+    console.log(`Jev: ${settings.disabled ? "disabled (CM_JEV=off)" : "configured"} · model ${settings.model} · endpoint ${settings.endpoint}`);
+    console.log(`Status: ${status.state}${status.at ? ` since ${status.at}` : ""}`);
+    const alert = jevAlertText(status);
+    if (alert) console.log(alert);
+    return;
+  }
+  if (sub === "test") {
+    if (!settings.key) { console.error("Jev: no API key. Set it with: cm config set TYPESAFE_API_KEY"); process.exit(1); }
+    const result = await jevAsk("code-mem connectivity check: the sky is blue.", {
+      ok: { type: "noul", instructions: "Is the statement in the state true?" },
+    }, { force: true, verbose: true });
+    if (!result) {
+      console.error(jevAlertText() || "Jev test failed (see message above).");
+      process.exit(1);
+    }
+    console.log(`Jev OK · ${result.model} · answer ${JSON.stringify(result.answers.ok)} · usage ${JSON.stringify(result.usage || {})}`);
+    return;
+  }
+  console.error("Usage: cm jev status|test [--force]");
+  process.exit(1);
+}
+
 function loadMemoryRow(d, id) {
   return listMemoryRows(d, "WHERE mi.id = ?", [id])[0] || null;
 }
@@ -7431,8 +7698,8 @@ setMode(saved!=='tech');
 if(LOGIC&&LOGIC.flow){
 // "How it works" flowchart: parts are coloured zones, journeys are paths of
 // start/step/decision/store/end nodes; decisions branch with labelled arrows.
-const IT=/^it/i.test(LOGIC.language||'');
-const T=IT?{how:'💡 Come funziona',tech:'🔧 Vista tecnica',title:'Come funziona',journeys:'Percorsi',parts:'Parti',intro:'Ogni zona colorata è una parte del software e dentro ci sono i passi che fa. I rombi gialli sono le domande che si pone: esce una freccia per ogni risposta. Scegli un percorso per seguirlo passo passo, oppure clicca un passo.',stale:'Il codice è cambiato da quando è stata scritta questa mappa: alcuni passi potrebbero essere un po’ vecchi.',steps:'passi',part:'Parte',before:'Arriva da',after:'Poi',inJourneys:'Fa parte di',seeTech:'🔧 Vedi i pezzi tecnici di questa parte',back:'← Tutti i percorsi',kinds:{start:'INIZIO',step:'PASSO',decision:'DOMANDA',store:'DOVE SI CONSERVA',end:'FINE'},stats:(j,n)=>j+' percorsi · '+n+' passi'}:{how:'💡 How it works',tech:'🔧 Technical view',title:'How it works',journeys:'Journeys',parts:'Parts',intro:'Each coloured zone is one part of the software, holding the steps it takes. Yellow diamonds are questions it asks itself: one arrow leaves for each answer. Pick a journey to follow it step by step, or click a step.',stale:'The code changed since this map was written; some steps may be slightly out of date.',steps:'steps',part:'Part',before:'Comes from',after:'Then',inJourneys:'Part of',seeTech:'🔧 See the technical pieces of this part',back:'← All journeys',kinds:{start:'START',step:'STEP',decision:'QUESTION',store:'KEPT IN',end:'END'},stats:(j,n)=>j+' journeys · '+n+' steps'};
+// UI strings are always English; only the map content follows the README language.
+const T={how:'💡 How it works',tech:'🔧 Technical view',title:'How it works',journeys:'Journeys',parts:'Parts',intro:'Each coloured zone is one part of the software, holding the steps it takes. Yellow diamonds are questions it asks itself: one arrow leaves for each answer. Pick a journey to follow it step by step, or click a step.',stale:'The code changed since this map was written; some steps may be slightly out of date.',steps:'steps',part:'Part',before:'Comes from',after:'Then',inJourneys:'Part of',seeTech:'🔧 See the technical pieces of this part',back:'← All journeys',kinds:{start:'START',step:'STEP',decision:'QUESTION',store:'KEPT IN',end:'END'},stats:(j,n)=>j+' journeys · '+n+' steps'};
 const F=LOGIC.flow;const logicGroup=new THREE.Group();logicGroup.visible=false;scene.add(logicGroup);
 const PALETTE=[0x67e8f9,0xa78bfa,0x34d399,0xf472b6,0x60a5fa,0xfdba74,0xa3e635,0xfb7185,0xfbbf24];
 const partIndex=new Map(LOGIC.parts.map((p,i)=>[p.id,i])),partById=new Map(LOGIC.parts.map(p=>[p.id,p])),nodeById=new Map(F.nodes.map(n=>[n.id,n]));
@@ -8999,6 +9266,12 @@ async function main() {
     return;
   }
   const c = process.cwd();
+  // Persistent settings (cm config) become environment before anything reads it.
+  loadCmConfig(c);
+  if (a[0] !== "jev" && a[0] !== "hook") {
+    const alert = jevSettings().key ? jevAlertText() : "";
+    if (alert) console.error(alert);
+  }
   // Help dispatch — obscured corollary surfaces are shown only with --full.
   // Accepted forms: `cm help`, `cm help --full`, `cm -h`, `cm --full help`,
   // `cm --full` (bare). Bare/cm help without --full stays lean (API unchanged).
@@ -9011,6 +9284,16 @@ async function main() {
   const cmd = a[0];
   const { flags: earlyFlags } = parseArgs(a.slice(1));
   const globalMemoryRequested = Boolean(earlyFlags.global || earlyFlags.scope === "global");
+
+  if (cmd === "config") {
+    await cmdConfig(c, a.slice(1));
+    return;
+  }
+
+  if (cmd === "jev") {
+    await cmdJev(a.slice(1));
+    return;
+  }
 
   if (cmd === "setup") {
     await setupHarness();
@@ -9380,6 +9663,8 @@ async function main() {
       const q = buildAutoQuery(c);
       captureAutoRecall(d, c);
       console.log(`## Contextual Memory (auto-recall)`);
+      const jevAlert = jevSettings().key ? jevAlertText() : "";
+      if (jevAlert) console.log(`- ${jevAlert} (tell the user)`);
       const recalled = await recallMemories(d, c, q, 1, 8, "hybrid");
       if (!recalled.ranked.length) console.log("No relevant memories from current context.");
       for (const e of recalled.ranked) {
